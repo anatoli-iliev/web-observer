@@ -28,9 +28,18 @@ from stating an assumption in the confident voice of a fact.
 | Skill frontmatter has **no** skill-to-skill dependency field | `docs/tools/skills.md` lists the complete `metadata.openclaw` set: `always`, `emoji`, `homepage`, `os`, `requires.{bins,anyBins,env,config}`, `primaryEnv`, `install`. `install` installs binaries (brew/node/go/uv/download), not sibling skills |
 | A skill can be installed from a git ref | `openclaw skills install "git:<url>#logs-surface" --as wo-refprobe` produced version 1.1.0 including `vercel_insights/logs.py`. Removed afterwards. Source (`dist/git-install-*.js`) parses `#ref` or `@ref`, full-clones, then `git checkout --detach <ref>` |
 | Secrets can be references rather than values | `openclaw config set skills.entries.<slug>.apiKey --ref-provider default --ref-source env --ref-id VAR` |
+| **A cron `command` payload runs with the Gateway's environment, not a skill's** | A probe job printing `VERCEL_TOKEN set=%s len=%s` reported `set= len=0`, with `PWD=/home/anatoli` and node on PATH |
 
 Consequences for this design:
 
+- **A scheduled run cannot inherit a delegated skill's credentials.** This was
+  discovered after the first draft of this document and changed the credential
+  design: rather than asking the user to configure the same token twice, or
+  copying it into the cron job with `--command-env` where it would live in
+  plaintext in a second file, `bridge/credentials.ts` reads what the delegated
+  skill is already configured with and passes it into that same skill's
+  subprocess environment. See that module's header for the three options and why
+  this one was chosen.
 - **No scheduler needs to be written, and no systemd unit is needed.** Cron is
   the scheduler. A systemd fallback is documented in README.md for the case
   where someone runs with `cron.enabled: false` or `OPENCLAW_SKIP_CRON=1`, but
@@ -97,7 +106,9 @@ src/uptime/               check one URL, classify a failure, decide when to aler
 src/state.ts              durable per-watch state, atomic writes
 src/bridge/vercel.ts      the only module that knows vercel-insights exists
 src/bridge/ga4.ts         the only module that knows open-ga4 exists
-src/schedule.ts           emit or apply the openclaw cron add commands
+src/bridge/credentials.ts pass a delegated skill the credentials it is configured with
+src/commands/             one file per command: uptime, vercelWatch, delegate, doctor, schedule
+src/env.ts                every environment variable this skill reads, in one list
 ```
 
 ### Commands
@@ -225,9 +236,17 @@ one file.
    once, with the same debounce. Exit 2 is a configuration problem and says so.
 4. Drop entries whose `requestId` is already seen. Add the rest. Prune ids older
    than twice the window.
-5. Alert when the count of new errors exceeds `threshold`, alert-once.
-6. Send one recovery message when a polling cycle finds no new errors while
-   alerting.
+5. Alert when the count of new errors exceeds `threshold`, alert-once. **Only
+   the errors actually reported are remembered as seen.** A batch that stayed
+   under the threshold is deliberately left unremembered, so it is counted again
+   next poll and a slow trickle still adds up to an alert. Marking everything
+   seen on every poll made any threshold above zero unreachable by a steady
+   drip: two errors per poll would each be new exactly once and never again.
+   This was found by a test rather than by reasoning, and the test now pins it.
+6. Send one recovery message when a poll finds **the whole window** clean, not
+   merely free of anything new. Errors already reported are still inside an
+   overlapping window, and announcing "no errors in the last 20 minutes" while
+   those 20 minutes still hold two of them would be a false statement.
 7. `truncated: true` is surfaced as "more errors matched than were shown", so a
    flood is never understated as exactly the row limit.
 
@@ -304,6 +323,28 @@ drift from code without a test failing:
 
 Mutation checks on the tests that matter: flipping the threshold comparison,
 removing the alert-once guard, and widening the allowlist must each fail a test.
+
+## What changed between this design and the implementation
+
+Recorded because a design document that quietly disagrees with the code is worse
+than no design document.
+
+- The credential path was redesigned once the cron environment was probed. See
+  above.
+- The error watch's dedupe and recovery semantics were corrected, twice, in
+  response to failing tests. See Module 2.
+- `attempts` and `retryDelayMs` were added to a watch after reading the existing
+  `dobri-check.sh`, which retries once ten seconds later within a single run.
+  Without them, this tool would have needed two full ticks to notice what that
+  script notices in ten seconds, which would have been a regression presented as
+  an upgrade.
+- `skillRoot` walks up to a directory marker rather than assuming a depth. The
+  first version assumed one directory and produced `<root>/lib/lib/cli.js` once
+  the caller moved into `lib/cli/`.
+- The retry pause is deliberately not an unref'd timer. The first version
+  unref'd it, which would have let Node exit mid-await and skip the retry
+  entirely while still reporting success: mistake 17 in the project notes, a
+  delay that exists only in the documentation.
 
 ## Deliverables
 

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the engines field. Node's built-in fetch and AbortSignal are
+          # what let this skill ship with no runtime dependencies.
+          node-version: "22.22.3"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # lib/ is committed, because no install route runs a build. This fails when
+      # the committed output no longer matches a fresh build of src/, which is
+      # the only thing standing between a hand-edited lib/ and a shipped skill
+      # that does not match its own source.
+      - name: lib/ matches src/
+        run: npm run check:lib
+
+      # A launcher that arrives without its executable bit is a skill that does
+      # not run. The documented route is `node lib/cli.js`, which needs no
+      # permissions, but the launcher should still work where it is used.
+      - name: the launcher runs
+        run: ./bin/web-observer --version

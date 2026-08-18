@@ -1,0 +1,23 @@
+node_modules/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Never commit credentials or a real configuration. Web Observer's own config
+# holds URLs and channel targets rather than secrets, but a copied-in example
+# can easily pick up a Telegram chat id or an internal hostname, and these
+# patterns exist so an accidental `git add .` cannot publish either.
+.env
+.env.*
+!.env.example
+# A real configuration and its state, which live in the OpenClaw state directory
+# but are easy to copy into a checkout while testing. The shipped example is
+# explicitly kept: the bare pattern would otherwise swallow it.
+config.json
+state.json
+!examples/config.json
+*.pem
+*.key
+
+# Agent working notes and reports. Scratch, never part of the project.
+.superpowers/

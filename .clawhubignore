@@ -1,0 +1,12 @@
+# Development-only material. The published skill needs SKILL.md, lib/, bin/,
+# examples/ and the documentation, and nothing that only serves a checkout.
+src/
+scripts/
+docs/
+node_modules/
+coverage/
+tsconfig.json
+tsconfig.check.json
+vitest.config.ts
+package-lock.json
+CONTRIBUTING.md

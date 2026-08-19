@@ -1,153 +1,201 @@
 # Web Observer
 
-An OpenClaw skill that watches websites and tells you when something breaks.
+An OpenClaw skill that watches your websites and messages you when something
+breaks. Node and TypeScript, **zero runtime dependencies**, MIT-0.
 
-Three things, each independently switchable:
+```
+🔴 api is DOWN: https://example.com/v1/orders
+- Reason: unexpected status (returned 404, expected 200)
+- Confirmed over 1 consecutive check, 1 request on the last one
+- At: 2026-08-19 09:00:39 +03:00
+```
 
-1. **Uptime.** Check a list of URLs, each on its own interval. One alert when a
-   site goes down, one when it comes back, and nothing in between.
-2. **Vercel.** Error logs, request logs, and Core Web Vitals against a budget.
-   Ad hoc questions, and a scheduled poll that alerts on new errors.
-3. **GA4 traffic.** Ad hoc questions, and a scheduled digest.
+You get that once. Not every five minutes until you mute it. When the site comes
+back you get one more message, and then silence again:
 
-Node, TypeScript, **zero runtime dependencies**. Uptime needs no credentials at
-all, so a Web Observer installed only to watch a URL is ready the moment it is
-installed.
+```
+🟢 api is back up: https://example.com/
+- Down for about 22 minutes, since 2026-08-19 08:39:41 +03:00
+- Now returning 200 in 90 ms
+- At: 2026-08-19 09:01:42 +03:00
+```
 
-The Vercel and GA4 parts are delegated to two existing skills,
-[openclaw-vercel-insights](https://github.com/anatoli-iliev/openclaw-vercel-insights)
-and [open-ga4](https://github.com/anatoli-iliev/open-ga4). Nothing about either
-API is reimplemented here.
+Alerts arrive on whatever chat channel OpenClaw already uses. Web Observer holds
+no bot token of its own.
 
-## How it alerts you, and why there is no bot token
+**Contents**
 
-OpenClaw's scheduler can run a command and deliver that command's **stdout** to
-a chat channel. Printing the exact token `NO_REPLY` suppresses the delivery.
+[What it watches](#what-it-watches) · [Quick start](#quick-start) ·
+[Checking by hand](#checking-by-hand) · [Commands](#commands) ·
+[Configuration](#configuration) · [Uptime](#uptime) · [Vercel](#vercel) ·
+[GA4](#ga4) · [How the alerting works](#how-the-alerting-works) ·
+[What it contacts](#what-it-contacts) · [Credentials](#credentials) ·
+[Development](#development)
 
-So an alert is a scheduled command printing text, and silence is the same command
-printing `NO_REPLY`. Web Observer opens no connection to Telegram or anywhere
-else and holds no credential for one: alerts travel over the channel the cron job
-names, which is the channel OpenClaw is already configured with.
+## What it watches
 
-Two consequences worth internalising before editing anything:
+Three things. Each is **independent**: switch on one, two, or all three.
 
-- On a scheduled run, **anything on stdout is sent to the user.** Diagnostics go
-  to stderr, where the cron run log keeps them without delivering them.
-- A scheduled run **exits 0 even when it alerts.** An alert is the tool working.
-  A non-zero exit would additionally trigger OpenClaw's own cron failure
-  notification, so a single outage would be announced twice by two different
-  mechanisms, and repeated failures would back the job off.
+| Module | Answers | Needs |
+| --- | --- | --- |
+| **Uptime** | Is the site up? Is it returning the right status, and the right page? | nothing |
+| **Vercel** | What is erroring? How fast does it feel? | [openclaw-vercel-insights](https://github.com/anatoli-iliev/openclaw-vercel-insights) |
+| **GA4** | Who is visiting, and from where? | [open-ga4](https://github.com/anatoli-iliev/open-ga4) |
 
-## Install
+Uptime needs no credentials at all, so a Web Observer installed only to watch a
+URL works the moment it is installed. The Vercel and GA4 work is handed to those
+two skills; nothing about either API is reimplemented here. If one is not
+installed, only the commands that needed it say so.
+
+## Quick start
+
+**1. Install.**
 
 ```bash
 openclaw skills install git:https://github.com/anatoli-iliev/web-observer --as web-observer
-node ~/.openclaw/workspace/skills/web-observer/lib/cli.js doctor
 ```
 
-`doctor` names the configuration file it expects. Copy the example there and
-edit it:
+**2. Save yourself some typing.** Every example below uses `wo`:
 
 ```bash
+alias wo='node ~/.openclaw/workspace/skills/web-observer/lib/cli.js'
+```
+
+**3. Copy the example configuration and edit it.**
+
+```bash
+mkdir -p ~/.openclaw/web-observer
 cp ~/.openclaw/workspace/skills/web-observer/examples/config.json \
    ~/.openclaw/web-observer/config.json
 ```
 
-Then check it works, and schedule it:
+Change the URLs to yours, and set `notify.to` to the chat OpenClaw already
+messages you on. `openclaw cron list` shows it in the Delivery column, as
+`telegram:123456789`.
+
+**4. Try it, then schedule it.**
 
 ```bash
-node ~/.openclaw/workspace/skills/web-observer/lib/cli.js check
-node ~/.openclaw/workspace/skills/web-observer/lib/cli.js schedule
-node ~/.openclaw/workspace/skills/web-observer/lib/cli.js schedule --apply
+wo check              # test everything right now
+wo schedule           # show the cron commands this config needs
+wo schedule --apply   # create them
+wo doctor             # confirm nothing is left to do
 ```
 
-`schedule` prints the `openclaw cron add` commands your configuration needs and
-changes nothing; `--apply` runs them. See [SETUP.md](SETUP.md) for the
-click-by-click version and a troubleshooting table.
+That is the whole setup. [SETUP.md](SETUP.md) is the click-by-click version, with
+a troubleshooting table for when a step does not go to plan.
+
+## Checking by hand
+
+`wo check` tests every URL immediately, whatever the schedule says, and prints
+what it found:
+
+```
+Web Observer check at 2026-08-19 09:00:38 +03:00
+
+watch   state  status  took    tries  detail
+------  -----  ------  ------  -----  ------------------------------------------------------------------------------------------------
+site    up     200     353 ms  1
+health  DOWN   200     150 ms  1      body did not match: returned 200 but the body does not contain "status ok" (559 characters read)
+api     DOWN   404     123 ms  1      unexpected status: returned 404, expected 200
+
+1 up, 2 down
+```
+
+Note the middle row: `health` returned **200 and is still broken**, because the
+page did not contain what it should. A status code alone would have called that
+healthy.
+
+`check` never changes anything, so run it as often as you like. It will not use
+up the one alert a real outage is entitled to.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `check` | Run every watch once, now, and print a table. Changes no alert state. |
-| `watch` | The scheduled uptime round. For cron, not for you. |
-| `vercel-watch` | The scheduled Vercel error and budget poll. For cron. |
-| `digest` | The scheduled GA4 digest. For cron. |
-| `vercel <preset> …` | Ask vercel-insights: `errors`, `error-summary`, `vitals`, `top-pages`, … |
-| `ga4 <preset> …` | Ask open-ga4: `report`, `compare`, `live`, `query`, … |
-| `doctor` | What is configured, what is missing, and the one next thing to do. |
-| `schedule` | Print (or with `--apply`, create) the cron jobs. |
+| `wo check` | Test every URL now and print a table. `--strict` exits 3 if anything is down. |
+| `wo doctor` | What is configured, what is missing, and the single next thing to do. |
+| `wo schedule` | Print the cron commands this configuration needs. `--apply` creates them. |
+| `wo vercel <preset>` | Ask about Vercel: `errors`, `error-summary`, `vitals`, `top-pages`, … |
+| `wo ga4 <preset>` | Ask about traffic: `report`, `compare`, `live`, `query`, … |
+| `wo watch` | The scheduled uptime round. For cron, not for you. |
+| `wo vercel-watch` | The scheduled Vercel error and speed poll. For cron. |
+| `wo digest` | The scheduled traffic digest. For cron. |
 
-Every command that sends a request or an alert takes `--dry-run`.
+The bottom three are what the cron jobs run. Running them by hand consumes an
+alert, so use `check`, or add `--dry-run`.
+
+Everything that would send a request or a message takes `--dry-run`.
 
 ## Configuration
 
-One JSON file, by default `~/.openclaw/web-observer/config.json`, overridable
-with `WEB_OBSERVER_CONFIG`. It is not kept in `openclaw.json` because every
-install route replaces the skill directory, and a list of watches is awkward to
-edit through `openclaw config set`.
+One JSON file at `~/.openclaw/web-observer/config.json`. The smallest version
+that does something useful:
 
 ```json
 {
   "notify": { "channel": "telegram", "to": "telegram:123456789" },
   "uptime": {
-    "enabled": true,
-    "tickMinutes": 5,
-    "defaults": { "timeoutMs": 10000, "failureThreshold": 2 },
     "watches": [
-      { "id": "site", "url": "https://example.com", "intervalMinutes": 5 },
-      {
-        "id": "health",
-        "url": "https://example.com/health",
-        "intervalMinutes": 1,
-        "expectBody": "\"ok\":true",
-        "failureThreshold": 1
-      }
+      { "id": "site", "url": "https://example.com", "intervalMinutes": 5 }
     ]
   }
 }
 ```
 
-`notify` is read only when generating the cron commands. Nothing in this skill
+The settings you are most likely to want:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `intervalMinutes` | 5 | How often to check this URL. |
+| `expectStatus` | `[200]` | A code, a class (`"2xx"`), or a range (`[200, 399]`). |
+| `expectBody` | none | Text the page must contain. Catches a 200 that renders an error. |
+| `failureThreshold` | 2 | Failed checks in a row before you are told. |
+| `timeoutMs` | 10000 | How long to wait for a response. |
+| `enabled` | true | Set false to keep a watch without running it. |
+
+Every setting is listed in [SKILL.md](SKILL.md#a-watch). An unrecognised key is
+**refused**, not ignored, and the error suggests the closest real one, because a
+silently dropped setting would leave a default running with nothing to say so.
+
+`notify` is used only when generating the cron commands. Nothing in this skill
 sends anything itself.
 
-### One tick, many intervals
+## Uptime
 
-A marketing page and a payment webhook want different cadences, and one cron job
-per URL would multiply gateway wakeups. Instead a single job runs every
-`tickMinutes`, and each round checks only the watches that have come due. An
-interval is therefore honoured to within one tick, and `doctor` warns when an
-interval is shorter than the tick or not a multiple of it, because otherwise the
-real cadence would quietly differ from the configured one.
+### One scheduled job, many intervals
 
-### Two thresholds, because there are two kinds of blip
+A marketing page and a payment webhook want different cadences, but one cron job
+per URL would wake the gateway constantly. So a single job runs every
+`tickMinutes`, and each round checks only the URLs that have come due.
 
-- `attempts` (default 2, `retryDelayMs` apart) retries **inside one round**,
-  seconds later. This catches a dropped packet.
-- `failureThreshold` (default 2) counts consecutive failed **rounds**, minutes
-  apart. This catches a flaky minute.
+An interval is therefore honoured to within one tick. `wo doctor` warns if an
+interval is shorter than the tick, or not a multiple of it, because the real
+cadence would otherwise quietly differ from the one you wrote down.
 
-The defaults mean four failed requests spread over about five minutes before
-anybody is woken.
+### Two thresholds, for two kinds of blip
 
-### Every watch setting
+- **`attempts`** (default 2) retries within one round, ten seconds later. This
+  catches a dropped packet.
+- **`failureThreshold`** (default 2) counts failed rounds, minutes apart. This
+  catches a flaky minute.
 
-See the table in [SKILL.md](SKILL.md#a-watch). The ones worth knowing about:
-`expectBody` catches a 200 that renders an error page, `expectStatus` accepts a
-code, a class such as `"2xx"`, or a range such as `[200, 399]`, and
-`followRedirects` is 0 by default.
+Together, the defaults mean four failed requests over about five minutes before
+anybody is woken up.
 
-## The Vercel module, and the branch it needs
+## Vercel
 
-> **TODO: re-pin this dependency.** Request-log support currently lives on the
+Errors, request logs, and Core Web Vitals against a budget.
+
+> [!IMPORTANT]
+> **TODO: re-pin this dependency.** Error-log support currently lives on the
 > [`logs-surface` branch](https://github.com/anatoli-iliev/openclaw-vercel-insights/tree/logs-surface)
-> of openclaw-vercel-insights, version 1.1.0, and is expected to merge to `main`.
-> When it does, change `REQUIRED_LOGS_REF` in `src/bridge/vercel.ts` to `"main"`
-> or to a release tag, and drop the `#logs-surface` from the install command
-> below and in SETUP.md. Nothing else changes: every log-related call already
-> goes through that one module, and the capability check tests for the presence
-> of `vercel_insights/logs.py` rather than for a version number, so it keeps
-> working either way.
+> of openclaw-vercel-insights (version 1.1.0) and should merge to `main` in time.
+> When it does, set `REQUIRED_LOGS_REF` in `src/bridge/vercel.ts` to `"main"` or a
+> release tag, and drop `#logs-surface` from the command below and in SETUP.md.
+> Nothing else changes: every log call already goes through that one module, and
+> the capability check looks for the presence of `vercel_insights/logs.py` rather
+> than a version number, so it keeps working either way.
 
 Traffic and speed work with any version. Errors need that branch:
 
@@ -155,11 +203,9 @@ Traffic and speed work with any version. Errors need that branch:
 openclaw skills install "git:https://github.com/anatoli-iliev/openclaw-vercel-insights#logs-surface" --as vercel-insights --force
 ```
 
-If the installed copy is older, Web Observer says exactly that, names the
-version it found and where, and points at the command above. It does not fail
-opaquely, and the traffic and speed presets keep working.
-
-### The error watch
+An older copy is not a mystery failure: Web Observer names the version it found,
+where it found it, and this command, and the traffic and speed presets keep
+working.
 
 ```json
 {
@@ -172,45 +218,40 @@ opaquely, and the traffic and speed presets keep working.
 }
 ```
 
-Every fifteen minutes it asks for the last twenty. The overlap matters: without
-it, an error arriving while a poll is in flight can fall into the gap between two
-windows and never be reported. The overlap costs nothing because errors are
-deduplicated by `requestId`, and if a poll has been missed the window widens to
-cover the whole gap.
+Every fifteen minutes it asks for the last twenty. The five-minute overlap
+matters: without it, an error arriving while a poll is in flight can fall into
+the gap between two windows and never be reported. The overlap is free because
+errors are deduplicated by request id, and if a poll is missed the window widens
+to cover the gap.
 
-`threshold` is how many new errors a poll tolerates before alerting; `0` means
-alert on any. Errors below the threshold are deliberately **not** marked as
-seen, so a slow trickle still adds up to an alert rather than being forgotten one
-poll at a time.
+`threshold` is how many new errors a poll tolerates before alerting; `0` alerts
+on any. Errors below the threshold are deliberately **not** remembered, so a slow
+trickle still adds up to an alert instead of being forgotten one poll at a time.
 
-Three facts about the underlying API shape this, all measured against a live
-account rather than read from a document:
+### Your application's log text is not forwarded
 
-- **A window that ends in the past can fail.** With `--until` more than about an
-  hour ago, the API answers `HTTP 400 ExceedsBillingLimitError`. With the end
-  left at now, every `--since` succeeds, from 30 minutes to 7 days. So the poller
-  never specifies an end, which removes the failure mode instead of handling it.
-- **An empty answer is a success, not a clean bill of health.** Runtime logs are
-  retained for 1 hour on Hobby, 1 day on Pro, 3 days on Enterprise, 30 days with
-  Observability Plus. An empty result over a longer window can mean the logs aged
-  out, and the alert says so.
-- **There is no live tail** that a request/response client can use, so this is a
-  polling loop by necessity, not by preference.
+Alerts carry counts, statuses and affected routes. They do not carry the log
+messages your code printed.
 
-### Raw log text is not forwarded by default
+That is because the underlying skill scrubs only its own Vercel token from log
+content: anything else your application wrote, which may include secrets, tokens
+and customer data, arrives exactly as written. So the message text is dropped at
+the bridge rather than at the formatter. With `includeMessages` off, it is never
+copied out of `src/bridge/vercel.ts` at all, and no downstream mistake can leak
+it.
 
-The underlying skill scrubs only its own Vercel token from log content. Whatever
-your application printed, which can include secrets, tokens and customer data,
-arrives verbatim. So alerts carry counts, statuses and affected routes, and the
-message text is dropped **at the bridge**, not at the formatter: with
-`includeMessages` off, the message, the log lines and the raw row are never
-copied out of `src/bridge/vercel.ts` at all, so no downstream formatting mistake
-can leak them. Set `includeMessages: true` only having decided that is fine.
+Turn it on only having decided that is fine for your logs.
 
-## The GA4 module
+## GA4
 
 ```json
-{ "ga4": { "enabled": true, "property": "123456789", "digest": { "cron": "0 9 * * 1", "since": "7d" } } }
+{
+  "ga4": {
+    "enabled": true,
+    "property": "123456789",
+    "digest": { "cron": "0 9 * * 1", "since": "7d" }
+  }
+}
 ```
 
 Needs [open-ga4](https://github.com/anatoli-iliev/open-ga4):
@@ -219,64 +260,100 @@ Needs [open-ga4](https://github.com/anatoli-iliev/open-ga4):
 openclaw skills install git:https://github.com/anatoli-iliev/open-ga4 --as open-ga4
 ```
 
-Absent, the two GA4 commands say so and exit 2. Uptime and Vercel are unaffected.
+Without it, the two GA4 commands say so and exit 2. Uptime and Vercel are
+unaffected.
+
+## How the alerting works
+
+Worth two minutes, because it explains why there is no bot token to configure.
+
+OpenClaw's scheduler can run a command and deliver that command's **stdout** to a
+chat channel. Printing the exact token `NO_REPLY` suppresses the delivery.
+
+So an alert is a scheduled command printing text, and silence is the same command
+printing `NO_REPLY`. Nothing here opens a connection to Telegram: alerts travel
+over the channel the cron job names, which is the one OpenClaw already has.
+
+`wo schedule` writes those cron jobs for you, because a skill manifest has no
+field for scheduling. It sets an explicit `--timeout-seconds`, since cron's
+30-second default is shorter than a single watch's worst case: two ten-second
+attempts with a ten-second pause between them reaches exactly 30 seconds.
+
+Two consequences, if you plan to change the code:
+
+- **Anything on stdout during a scheduled run is sent to you.** Diagnostics go to
+  stderr, where the cron run log keeps them without delivering them.
+- **A scheduled run exits 0 even when it alerts.** An alert is the tool working. A
+  non-zero exit would also trigger OpenClaw's own cron failure notification, so
+  one outage would reach you twice by two different routes.
+
+### If OpenClaw's cron is unavailable
+
+Running with `cron.enabled: false` or `OPENCLAW_SKIP_CRON=1`? There is a systemd
+unit and timer in [`examples/`](examples/web-observer-monitor.service). Prefer
+cron when you have it, since that is what delivers an alert without this skill
+holding any credential.
+
+## What it contacts
+
+Exactly the URLs you configured, and nothing else. That is enforced in code, not
+just promised here:
+
+- The allowlist is built from your watch URLs by one function with no other
+  input, and no flag extends it.
+- The host is checked before every request **and again on every redirect hop**. A
+  redirect leaving the allowlist fails the check, naming the host, and is never
+  followed. `fetch` is never allowed to follow a redirect itself, so the
+  allowlist binds every hop rather than only the first.
+- Only `GET`, `HEAD` and `OPTIONS` are ever sent.
+- A response body is measured, never quoted into an alert, and at most 1 MiB of
+  it is read.
+
+Everything Vercel and GA4 runs as a subprocess, invoked as an argument vector
+with no shell, using those skills' own allowlists.
 
 ## Credentials
 
 Web Observer has no credential of its own, and declares no `primaryEnv`, because
 there is no key to save.
 
-The delegated skills do have credentials, and a scheduled run cannot inherit
-them: an OpenClaw cron job with a command payload runs with the **Gateway's**
-environment, which does not carry a skill's configured variables. Verified by
-probe: a cron command sees no `VERCEL_TOKEN`.
+The two delegated skills do have credentials, and a scheduled run cannot inherit
+them: an OpenClaw cron job runs with the **Gateway's** environment, which does
+not carry a skill's configured variables. So Web Observer reads what the
+delegated skill is already configured with, from `skills.entries.<slug>` in
+`openclaw.json`, and passes it to that same skill in its subprocess environment.
+Your secret keeps living in exactly one place.
 
-So Web Observer reads what the delegated skill is already configured with, from
-`skills.entries.<slug>` in `openclaw.json`, and passes it in that skill's own
-subprocess environment. The secret keeps living in exactly one place. It is never
-put on a command line, never printed, never written to a file, and `doctor`
-reports only where it came from.
+It is never put on a command line, never printed, and never written to a file.
+`wo doctor` reports only where a value came from.
 
-A `SecretRef` cannot be resolved outside the Gateway. When one is configured,
-Web Observer says so rather than guessing, and suggests giving it its own copy:
+A `SecretRef` cannot be resolved outside the Gateway. Web Observer says so rather
+than guessing, and suggests giving it its own copy:
 
 ```bash
 openclaw config set skills.entries.web-observer.env.VERCEL_TOKEN \
   --ref-provider default --ref-source env --ref-id VERCEL_TOKEN
 ```
 
-## What this skill contacts
+<details>
+<summary><b>Three facts about Vercel's log API that shaped this design</b></summary>
 
-Exactly the URLs configured under `uptime.watches`, and nothing else. Enforced in
-code rather than asserted in prose:
+All three were measured against a live account, not read from a document.
 
-- The allowlist is derived from the configured watch URLs. That function is its
-  only constructor, and no flag extends it.
-- The host is checked before every request and again on **every redirect hop**.
-  A redirect leaving the allowlist fails the check with `redirect-off-allowlist`,
-  naming the host, and is never followed. `fetch` is never allowed to follow a
-  redirect itself, which is what keeps the allowlist binding on every hop rather
-  than only the first.
-- Only `GET`, `HEAD` and `OPTIONS` are issued.
-- A response body is measured, never quoted into an alert, and at most 1 MiB is
-  read.
+**A window that ends in the past can fail.** With `--until` more than about an
+hour ago, the API answers `HTTP 400 ExceedsBillingLimitError`. With the end left
+at now, every `--since` succeeds, from 30 minutes to 7 days. So the poller never
+specifies an end, which removes the failure mode rather than handling it.
 
-Everything Vercel and GA4 happens in a subprocess, invoked as an argument vector
-with no shell, using those skills' own allowlists and credentials.
+**An empty answer is a success, not a clean bill of health.** Runtime logs are
+retained for 1 hour on Hobby, 1 day on Pro, 3 days on Enterprise, and 30 days
+with Observability Plus. An empty result over a longer window can mean the logs
+aged out, and the alert says so rather than claiming the site is fine.
 
-## Scheduling
+**There is no live tail** that a request/response client can use, so this is a
+polling loop by necessity rather than by preference.
 
-OpenClaw's `cron` is the scheduler; there is no manifest field for scheduling, so
-`schedule` exists to write the commands for you. The generated job sets an
-explicit `--timeout-seconds`, because the default is 30 seconds and one watch
-allowed two ten-second attempts with a pause between them already reaches
-exactly that.
-
-If you run with cron disabled (`cron.enabled: false` or `OPENCLAW_SKIP_CRON=1`),
-there is a systemd fallback in
-[`examples/web-observer-monitor.service`](examples/web-observer-monitor.service)
-and its timer. It is a fallback: with cron available, use cron, because that is
-what makes delivery work without a bot token.
+</details>
 
 ## Development
 
@@ -290,9 +367,12 @@ npm run check     # typecheck, test, rebuild lib/
 `npm run check:lib` fails if the committed output no longer matches `src/`.
 
 Tests include a set that fail when the documentation stops describing the code:
-the declared environment variables against those the code reads, the documented
-exit codes against those it returns, the flag table against the parser, and each
-security claim against the code enforcing it.
+the declared environment variables against those actually read, the documented
+exit codes against those returned, the flag table against the parser, and each
+security claim above against the code enforcing it.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the decisions worth reading before
+changing the behaviour they describe.
 
 ## Licence
 

@@ -20,6 +20,15 @@ import { type UptimeEvent } from "./decide.js";
  * It must be the whole of stdout, so nothing may be printed alongside it.
  */
 export declare const SILENT_TOKEN = "NO_REPLY";
+/**
+ * Whether a duration is precise enough to need no hedge in front of it.
+ *
+ * "Down for about under a second" is what happens without this: the sub-second
+ * case already hedges, so a second "about" reads as a mistake. Everything longer
+ * does want the hedge, because an outage is only ever known to within one check
+ * interval.
+ */
+export declare function durationIsHedged(ms: number): boolean;
 /** How long an outage lasted, in the units a person would use. */
 export declare function humanDuration(ms: number): string;
 /** A timestamp as local wall-clock time with its offset, for an alert line. */

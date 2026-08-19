@@ -23,6 +23,18 @@ import { REASON_TEXT, type UptimeEvent } from "./decide.js";
  */
 export const SILENT_TOKEN = "NO_REPLY";
 
+/**
+ * Whether a duration is precise enough to need no hedge in front of it.
+ *
+ * "Down for about under a second" is what happens without this: the sub-second
+ * case already hedges, so a second "about" reads as a mistake. Everything longer
+ * does want the hedge, because an outage is only ever known to within one check
+ * interval.
+ */
+export function durationIsHedged(ms: number): boolean {
+  return ms < 1_000;
+}
+
 /** How long an outage lasted, in the units a person would use. */
 export function humanDuration(ms: number): string {
   if (ms < 1_000) return "under a second";
@@ -72,10 +84,10 @@ function eventLines(event: UptimeEvent): string[] {
   const { watch, result } = event;
   const lines = [`🟢 ${watch.id} is back up: ${watch.url}`];
   if (event.downSinceMs !== null) {
+    const outage = event.atMs - event.downSinceMs;
+    const hedge = durationIsHedged(outage) ? "" : "about ";
     lines.push(
-      `- Down for about ${humanDuration(event.atMs - event.downSinceMs)}, since ${stamp(
-        event.downSinceMs,
-      )}`,
+      `- Down for ${hedge}${humanDuration(outage)}, since ${stamp(event.downSinceMs)}`,
     );
   }
   lines.push(`- Now returning ${result.status} in ${result.durationMs} ms`);
@@ -110,5 +122,9 @@ export function formatEvents(events: readonly UptimeEvent[]): string {
   ]
     .filter((part) => part !== null)
     .join(", ");
-  return [`Web Observer: ${summary}`, "", ...blocks].join("\n");
+  // Blocks are separated by a blank line. Joined by a single newline, two
+  // stacked alerts run together into one wall of text, which is how it reads on
+  // a phone: the second site's name lands directly under the first one's
+  // timestamp and neither is easy to pick out.
+  return `Web Observer: ${summary}\n\n${blocks.join("\n\n")}`;
 }

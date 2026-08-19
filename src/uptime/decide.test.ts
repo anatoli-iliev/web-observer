@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseConfig, type Watch } from "../config.js";
 import { freshWatchState, type WatchState } from "../state.js";
-import { applyResult, dueWatches, isDue, type CheckResult, type UptimeEvent } from "./decide.js";
+import { applyResult, dueToleranceMs, dueWatches, isDue, type CheckResult, type UptimeEvent } from "./decide.js";
 
 const MINUTE = 60_000;
 
@@ -54,14 +54,28 @@ function run(
 
 describe("due-ness", () => {
   it("checks a watch that has never been checked", () => {
-    expect(isDue(freshWatchState(), 0)).toBe(true);
+    expect(isDue(freshWatchState(), 0, 0)).toBe(true);
   });
 
   it("waits until the interval has passed", () => {
     const state: WatchState = { ...freshWatchState(), nextDueAtMs: 1_000 };
-    expect(isDue(state, 999)).toBe(false);
-    expect(isDue(state, 1_000)).toBe(true);
-    expect(isDue(state, 1_001)).toBe(true);
+    expect(isDue(state, 999, 0)).toBe(false);
+    expect(isDue(state, 1_000, 0)).toBe(true);
+    expect(isDue(state, 1_001, 0)).toBe(true);
+  });
+
+  // The tolerance exists so a watch whose interval equals the tick is not
+  // permanently a fraction of a second short. It is bounded: a watch due beyond
+  // it still waits.
+  it("takes a watch inside the tolerance and leaves one outside it", () => {
+    const state: WatchState = { ...freshWatchState(), nextDueAtMs: 1_000 };
+    expect(isDue(state, 900, 100)).toBe(true);
+    expect(isDue(state, 899, 100)).toBe(false);
+  });
+
+  it("allows a round to take a watch up to half a tick early", () => {
+    expect(dueToleranceMs(5)).toBe(2.5 * MINUTE);
+    expect(dueToleranceMs(1)).toBe(30_000);
   });
 
   it("schedules the next check one interval out", () => {
@@ -88,6 +102,7 @@ describe("due-ness", () => {
       config.uptime.watches,
       (watch) => states[watch.id] ?? freshWatchState(),
       11 * MINUTE,
+      0,
     );
     expect(due.map((watch) => watch.id)).toEqual(["fast"]);
   });
@@ -96,7 +111,7 @@ describe("due-ness", () => {
     const config = parseConfig({
       uptime: { watches: [{ id: "off", url: "https://off.example", enabled: false }] },
     });
-    expect(dueWatches(config.uptime.watches, () => freshWatchState(), Number.MAX_SAFE_INTEGER)).toEqual(
+    expect(dueWatches(config.uptime.watches, () => freshWatchState(), Number.MAX_SAFE_INTEGER, 0)).toEqual(
       [],
     );
   });

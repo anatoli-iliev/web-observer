@@ -10,7 +10,9 @@
  * The rules, in the order they bite:
  *
  * 1. A watch is checked only when it is due, so per-URL intervals work from a
- *    single scheduled job.
+ *    single scheduled job. Due times are served by the nearest round rather than
+ *    the next one after them, or an interval equal to the tick would slip a
+ *    whole tick every time.
  * 2. A watch alerts once it has failed `failureThreshold` consecutive checks,
  *    and not before, so one dropped connection is not an alert.
  * 3. It then stays silent for as long as it remains down. An alert repeated
@@ -68,6 +70,23 @@ export type UptimeEvent = {
     downSinceMs: number | null;
 };
 /**
+ * How early a round may take a watch that is not quite due, in milliseconds.
+ *
+ * Checks happen only when the scheduled job fires, so a watch that comes due
+ * between two rounds is either taken by one of them or waits a whole tick. Half
+ * a tick puts each due time with the nearer round.
+ *
+ * Without this, a watch whose interval equals the tick runs at half its
+ * configured rate, permanently. The next due time is stamped when a check
+ * finishes, so it lands a fraction of a second after the following round
+ * arrives; that round finds it not due, and the check falls to the round after.
+ * Measured on a live install: a five-minute watch on a five-minute tick was
+ * checked every ten minutes, which doubled how long an outage took to report.
+ *
+ * @param tickMinutes How often the scheduled job runs.
+ */
+export declare function dueToleranceMs(tickMinutes: number): number;
+/**
  * Whether a watch should be checked now.
  *
  * A watch never checked before is due immediately, which is what makes a first
@@ -75,15 +94,17 @@ export type UptimeEvent = {
  *
  * @param state That watch's saved state.
  * @param nowMs The current time.
+ * @param toleranceMs How early this round may take it. See
+ *   {@link dueToleranceMs}: zero means "not before the due time, ever".
  */
-export declare function isDue(state: WatchState, nowMs: number): boolean;
+export declare function isDue(state: WatchState, nowMs: number, toleranceMs: number): boolean;
 /**
  * Which of a set of watches a tick should check.
  *
  * Disabled watches are skipped here rather than filtered by the caller, so
  * there is one place that decides what a tick does.
  */
-export declare function dueWatches(watches: readonly Watch[], states: (watch: Watch) => WatchState, nowMs: number): Watch[];
+export declare function dueWatches(watches: readonly Watch[], states: (watch: Watch) => WatchState, nowMs: number, toleranceMs: number): Watch[];
 /**
  * Fold one check result into a watch's state.
  *

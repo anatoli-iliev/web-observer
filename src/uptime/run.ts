@@ -17,7 +17,7 @@ import type { Config, Watch } from "../config.js";
 import { allowlistOf } from "../config.js";
 import { freshWatchState, type State, watchStateOf } from "../state.js";
 import { performCheck, type CheckDeps } from "./check.js";
-import { applyResult, isDue, type CheckResult, type UptimeEvent } from "./decide.js";
+import { applyResult, dueToleranceMs, isDue, type CheckResult, type UptimeEvent } from "./decide.js";
 
 /** How many checks are in flight at once. */
 export const CONCURRENCY = 4;
@@ -116,7 +116,10 @@ export async function runRound(
       skipped.push(watch);
       continue;
     }
-    if (options.ignoreSchedule || isDue(watchStateOf(state, watch.id), deps.now())) {
+    if (
+      options.ignoreSchedule ||
+      isDue(watchStateOf(state, watch.id), deps.now(), dueToleranceMs(config.uptime.tickMinutes))
+    ) {
       runnable.push(watch);
     } else {
       skipped.push(watch);

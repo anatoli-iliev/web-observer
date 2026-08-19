@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A watch whose interval equals the tick is no longer checked at half its
+  rate.** The next due time was stamped when a check finished, so it landed a
+  fraction of a second after the next round arrived, that round found the watch
+  not due, and the check fell to the round after. The default configuration has
+  both set to five minutes, so a five-minute watch was checked every ten, and an
+  outage took up to twenty minutes to report instead of ten. A round now takes a
+  watch that comes due within half a tick, so each due time is served by the
+  nearer round.
+
 ## [0.1.0] - 2026-08-19
 
 First release. Three things a website owner asks, answered from one command

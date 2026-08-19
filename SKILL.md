@@ -281,7 +281,7 @@ list of watches is awkward to edit with `openclaw config set`.
 | --- | --- | --- |
 | `id` | required | Keys this watch's saved state. Renaming it forgets whether the URL was down. |
 | `url` | required | http or https. Credentials in the URL are refused; use `headers`. |
-| `intervalMinutes` | 5 | How often to check, honoured to within one `tickMinutes`. |
+| `intervalMinutes` | 5 | How often to check. Each check lands on the nearest scheduled round, so setting this to `tickMinutes` or below means every round checks it. |
 | `method` | `GET` | `GET`, `HEAD` or `OPTIONS` only. A health check must not be able to change anything. |
 | `expectStatus` | `[200]` | A code (`200`), a class (`"2xx"`), a range (`[200, 399]`), or a list of those. |
 | `expectBody` | none | Substring the body must contain. Catches a 200 that renders an error page. |

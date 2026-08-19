@@ -22,13 +22,13 @@ from stating an assumption in the confident voice of a fact.
 | `openclaw cron` is a Gateway-owned scheduler, persisted to SQLite | `openclaw cron status` reports `storage: sqlite`, `sqlitePath`, `jobs: 6` |
 | Schedules are `--at`, `--every`, `--cron` with `--tz` | `openclaw cron add --help`, and five live jobs use them |
 | A cron job can run a command, not only an agent turn | `--command <shell>` runs `sh -lc`; a live job's payload is `{kind: "command", argv: ["sh","-lc",...]}` |
-| A command job's **stdout becomes the announce text**, delivered to the channel | A probe job printing one line returned `delivered: true, deliveryStatus: "delivered"` to `telegram:5173520412`, then was deleted |
+| A command job's **stdout becomes the announce text**, delivered to the channel | A probe job printing one line returned `delivered: true, deliveryStatus: "delivered"` to a real Telegram target, then was deleted |
 | The exact token `NO_REPLY` suppresses delivery **and** the fallback queued summary | `docs/automation/cron-jobs.md` and `docs/concepts/messages.md`; plus 225 consecutive `delivered: false` runs on an existing job whose script prints `NO_REPLY` when the site is up |
 | Cron has its own failure alerting: `failureAlert: {after, cooldownMs}` | Present on a live job; `--no-failure-alert` exists on `cron edit` |
 | Skill frontmatter has **no** skill-to-skill dependency field | `docs/tools/skills.md` lists the complete `metadata.openclaw` set: `always`, `emoji`, `homepage`, `os`, `requires.{bins,anyBins,env,config}`, `primaryEnv`, `install`. `install` installs binaries (brew/node/go/uv/download), not sibling skills |
 | A skill can be installed from a git ref | `openclaw skills install "git:<url>#logs-surface" --as wo-refprobe` produced version 1.1.0 including `vercel_insights/logs.py`. Removed afterwards. Source (`dist/git-install-*.js`) parses `#ref` or `@ref`, full-clones, then `git checkout --detach <ref>` |
 | Secrets can be references rather than values | `openclaw config set skills.entries.<slug>.apiKey --ref-provider default --ref-source env --ref-id VAR` |
-| **A cron `command` payload runs with the Gateway's environment, not a skill's** | A probe job printing `VERCEL_TOKEN set=%s len=%s` reported `set= len=0`, with `PWD=/home/anatoli` and node on PATH |
+| **A cron `command` payload runs with the Gateway's environment, not a skill's** | A probe job printing `VERCEL_TOKEN set=%s len=%s` reported `set= len=0`, with `PWD` set to the user's home directory rather than the skill's, and node on PATH |
 
 Consequences for this design:
 

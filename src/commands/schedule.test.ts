@@ -108,7 +108,7 @@ describe("the cron add command", () => {
   });
 
   // A cron job runs with the Gateway's working directory, verified as
-  // /home/anatoli rather than the skill's, so a relative path cannot work.
+  // the user's home directory rather than the skill's, so a relative path cannot work.
   it("embeds an absolute path to the entry point", () => {
     const command = argv[argv.indexOf("--command") + 1] ?? "";
     expect(command).toContain(CLI);

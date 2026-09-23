@@ -119,6 +119,31 @@ describe("SKILL.md frontmatter", () => {
     expect(front).not.toMatch(/^\s*env:\s*\[/m);
   });
 
+  // ClawHub describes requires.config as "config file paths your skill reads",
+  // but OpenClaw evaluates it as a gate: each entry is an openclaw.json key
+  // that must be truthy, or the skill stays in "needs setup". Declaring the
+  // delegated skills' credential entries there would hold back an uptime-only
+  // install, so the read is declared in prose instead (the next test).
+  it("gates nothing on requires.config", () => {
+    expect(front).not.toMatch(/^\s*config:/m);
+  });
+
+  // Neither ClawHub's skill format nor OpenClaw defines a security level, so a
+  // self-assigned one is a trust claim that nothing verifies.
+  it("claims no security level that no registry defines", () => {
+    expect(front).not.toMatch(/security_level/);
+  });
+
+  it("declares, in the skill itself, the credentials it reads from openclaw.json", () => {
+    const section = /## Files and credentials this skill reads\n([\s\S]*?)\n## /.exec(SKILL)?.[1];
+    expect(section).toBeDefined();
+    const text = prose(section ?? "");
+    expect(text).toContain("openclaw.json");
+    expect(text).toContain("skills.entries.vercel-insights");
+    expect(text).toContain("skills.entries.open-ga4");
+    expect(text).toContain("agents.defaults.workspace");
+  });
+
   it("declares every environment variable the code reads, and reads every one it declares", () => {
     const declared = [...front.matchAll(/^ {6}- name: (\S+)$/gm)].map((match) => match[1] as string);
     expect([...declared].sort()).toEqual([...ALL_ENV_VARS].sort());

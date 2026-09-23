@@ -9,7 +9,6 @@ version: 0.1.0
 homepage: https://github.com/anatoli-iliev/web-observer
 compatibility: openclaw >=1.0
 metadata:
-  security_level: L1
   openclaw:
     requires:
       bins: [node]
@@ -354,11 +353,47 @@ Everything Vercel and GA4 is a subprocess: those skills make those requests with
 their own credentials and their own allowlists. Web Observer passes arguments as
 an argument vector, never through a shell.
 
-Credentials are read from the delegated skill's own `openclaw.json` entry and
-passed in that subprocess's environment. They are never put on a command line,
-never printed, and never written to a file. A scheduled cron job runs with the
-Gateway's environment rather than a skill's, which is why they have to be read
-rather than inherited.
+## Files and credentials this skill reads
+
+Declared here because no manifest field can say it without side effects:
+`requires.config` is an eligibility gate in OpenClaw, not a declaration, and
+listing these keys there would hold an uptime-only install in "needs setup".
+
+**Uptime watching reads no credential and no other skill's files.** Beyond its
+own configuration and state file it touches nothing.
+
+The Vercel and GA4 modules read `<openclaw-state>/openclaw.json`, and from it
+only these keys:
+
+- `skills.entries.vercel-insights.apiKey` and `skills.entries.vercel-insights.env`:
+  the Vercel token and the project and team ids from the variables declared
+  above.
+- `skills.entries.open-ga4.apiKey` and `skills.entries.open-ga4.env`: the GA4
+  credentials and property id from the variables declared above.
+- `skills.entries.<slug>.enabled` for those two slugs, to report a disabled
+  skill rather than run it.
+- `agents.defaults.workspace`, to find where those two skills are installed.
+
+They are read only when you run a `vercel` or `ga4` command, or when `doctor`,
+`vercel-watch` or `digest` covers a module you enabled. Why they are read at
+all: a scheduled cron job runs with the Gateway's environment rather than a
+skill's, so the credentials the delegated skill is configured with are absent
+from a scheduled run unless something reads them. Reading them keeps the secret
+in one place instead of asking you to configure it twice.
+
+A value read this way is passed only in the environment of the subprocess that
+runs that same skill. It is never put on a command line, never printed, never
+written to a file, and never sent anywhere by Web Observer itself. A value that
+is a secret reference, or a `${VAR}` interpolation of an unset variable, is
+reported by name and not resolved.
+
+Also read: each delegated skill's `SKILL.md` for its version, and whether its
+`.venv` and `vercel_insights/logs.py` exist.
+
+Written: only the state file beside the configuration (default
+`<openclaw-state>/web-observer/state.json`, mode 0600). `schedule --apply` also
+creates cron jobs, by running `openclaw cron add`. It runs only when you pass
+`--apply`, and it never replaces a job that already exists.
 
 ## Failure reasons
 

@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is shared by every watch, so a redirect to another watch's host used to
   carry the first watch's headers with it.
 
+### Changed
+
+- **SKILL.md declares what it reads from `openclaw.json`.** A new section names
+  the exact keys the Vercel and GA4 modules read, when, and why, so a reviewer
+  need not find them in the code. It is prose rather than `requires.config`,
+  which OpenClaw treats as an eligibility gate that would hold back an
+  uptime-only install.
+- **The `security_level: L1` frontmatter field is gone.** Neither ClawHub nor
+  OpenClaw defines it, so it was a trust label nothing verified.
+
 ### Fixed
 
 - **A watch whose interval equals the tick is no longer checked at half its

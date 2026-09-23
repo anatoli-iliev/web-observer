@@ -108,7 +108,7 @@ interpretation the numbers support.
 | --- | --- |
 | "is my site up", "check the site now", "are any sites down" | `check` |
 | "check just the blog" | `check --only blog` |
-| "did dobri.bg go down last night" | `doctor --json`, then read the state file it names; this tool alerts on change and does not keep a history |
+| "did example.com go down last night" | `doctor --json`, then read the state file it names; this tool alerts on change and does not keep a history |
 | "set up monitoring", "why is this not working", "it never alerts me" | `doctor --json` |
 | "start watching", "schedule it", "make it run every 5 minutes" | `schedule` (prints the commands), then `schedule --apply` |
 | "what errors did my site have", "why am I getting 500s", "show me the logs" | `vercel errors --since 30m` |
@@ -340,7 +340,10 @@ nothing else. That is enforced in code, not merely documented:
   constructor for it and no flag that extends it.
 - The host is re-checked before every request, including **every redirect hop**.
   A redirect to a host no watch configures fails the check with reason
-  `redirect-off-allowlist`, naming the host, and is never followed.
+  `redirect-off-allowlist`, naming the host, and is never followed. So does a
+  redirect from https to http, even on the same host.
+- Configured `headers` are sent only to the watch's own host. A redirect to
+  another watch's host is followed without them.
 - Redirects are not followed at all by default, and `fetch` is never allowed to
   follow one itself, so the allowlist binds every hop rather than only the first.
 - Only `GET`, `HEAD` and `OPTIONS` are ever issued.

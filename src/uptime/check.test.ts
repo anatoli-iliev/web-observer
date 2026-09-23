@@ -323,6 +323,52 @@ describe("redirects and the allowlist", () => {
     expect(result.ok).toBe(true);
   });
 
+  // A configured header is often a credential, and plain http would send it in
+  // the clear to anybody on the path.
+  it("refuses a redirect that downgrades https to http", async () => {
+    const { watch, allowlist } = watchOf({
+      followRedirects: 2,
+      attempts: 3,
+      headers: { Authorization: "Bearer SECRETVALUE" },
+    });
+    const deps = depsFor([redirect("http://example.com/plain"), ok()]);
+    const result = await performCheck(watch, allowlist, deps);
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.reason).toBe("redirect-off-allowlist");
+    expect(result.detail).toContain("https to http");
+    expect(deps.sent).toHaveLength(1);
+  });
+
+  it("follows a redirect that upgrades http to https", async () => {
+    const { watch, allowlist } = watchOf({
+      url: "http://example.com/health",
+      followRedirects: 1,
+      attempts: 1,
+    });
+    const deps = depsFor([redirect("https://example.com/health"), ok()]);
+    const result = await performCheck(watch, allowlist, deps);
+    expect(result.ok).toBe(true);
+  });
+
+  it("sends configured headers only to the watch's own host", async () => {
+    const { watch, allowlist } = watchOf(
+      { followRedirects: 2, attempts: 1, headers: { Authorization: "Bearer SECRETVALUE" } },
+      [{ id: "other", url: "https://other.example/" }],
+    );
+    const deps = depsFor([
+      redirect("https://example.com/moved"),
+      redirect("https://other.example/landing"),
+      ok(),
+    ]);
+    const result = await performCheck(watch, allowlist, deps);
+    expect(result.ok).toBe(true);
+    expect(deps.sent.map((sent) => sent.headers)).toEqual([
+      { Authorization: "Bearer SECRETVALUE" },
+      { Authorization: "Bearer SECRETVALUE" },
+      {},
+    ]);
+  });
+
   it("stops following once the hop budget is spent and judges what it has", async () => {
     const { watch, allowlist } = watchOf({ followRedirects: 1, attempts: 1 });
     const deps = depsFor([

@@ -305,6 +305,10 @@ just promised here:
   redirect leaving the allowlist fails the check, naming the host, and is never
   followed. `fetch` is never allowed to follow a redirect itself, so the
   allowlist binds every hop rather than only the first.
+- A redirect from https to http is refused, even on the same host, so a
+  configured header never travels in the clear.
+- Configured headers go only to the watch's own host, never to another watch's
+  host that a redirect lands on.
 - Only `GET`, `HEAD` and `OPTIONS` are ever sent.
 - A response body is measured, never quoted into an alert, and at most 1 MiB of
   it is read.

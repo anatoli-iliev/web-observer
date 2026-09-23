@@ -361,10 +361,10 @@ export function tally(entries: readonly SafeErrorEntry[]): ErrorTally {
   for (const entry of entries) {
     const status = entry.status === null ? "(none)" : String(entry.status);
     statuses.set(status, (statuses.get(status) ?? 0) + 1);
-    // The route pattern when there is one, else the concrete path. A path is
-    // chosen by whoever made the request, so it is only used when Vercel
-    // recorded no route to group by.
-    const route = entry.route !== "" ? entry.route : entry.path !== "" ? entry.path : "(unknown)";
+    // The route pattern, never the concrete path. A path is chosen by whoever
+    // made the request, and this tally is delivered into a chat, so quoting it
+    // would let any stranger write into the alert.
+    const route = entry.route !== "" ? entry.route : "(unrouted)";
     routes.set(route, (routes.get(route) ?? 0) + 1);
   }
   const order = (map: Map<string, number>): Array<[string, number]> =>

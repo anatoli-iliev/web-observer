@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A Vercel error alert no longer quotes request paths.** An error with no
+  recorded route was grouped under its concrete path, which whoever made the
+  request chooses, so anybody could put text of their choice into the chat.
+  Such errors are now counted as `(unrouted)`.
+- **A redirect from https to http is no longer followed.** The allowlist
+  compares hosts only, so a downgrade on the same host was followed and any
+  configured header, such as an authorization token, was sent in the clear.
+  It now fails the check with `redirect-off-allowlist`.
+- **Configured headers are sent only to the watch's own host.** The allowlist
+  is shared by every watch, so a redirect to another watch's host used to
+  carry the first watch's headers with it.
+
 ### Fixed
 
 - **A watch whose interval equals the tick is no longer checked at half its

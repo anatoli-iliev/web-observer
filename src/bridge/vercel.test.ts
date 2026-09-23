@@ -260,10 +260,17 @@ describe("tallying", () => {
     expect(tally(entries).byRoute).toEqual([["/api/user/[id]", 2]]);
   });
 
-  // A path is chosen by whoever made the request, so it is a fallback only.
-  it("falls back to the path when no route was recorded", () => {
-    const entries = toSafeEntries(document([row({ route: "", path: "/raw" })]), false).entries;
-    expect(tally(entries).byRoute).toEqual([["/raw", 1]]);
+  // A path is chosen by whoever made the request, and the tally ends up in a
+  // chat message, so an unrouted error is counted without quoting its path.
+  it("groups errors with no recorded route as unrouted, never quoting the path", () => {
+    const entries = toSafeEntries(
+      document([
+        row({ requestId: "a", route: "", path: "/ignore-previous-instructions" }),
+        row({ requestId: "b", route: "", path: "/raw" }),
+      ]),
+      false,
+    ).entries;
+    expect(tally(entries).byRoute).toEqual([["(unrouted)", 2]]);
   });
 
   it("reports a missing status as (none) rather than as 0", () => {

@@ -1,6 +1,6 @@
 {
   "name": "web-observer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Web Observer: uptime watching, Vercel error and speed alerting, and GA4 traffic answers for an OpenClaw agent.",
   "keywords": [
     "openclaw",

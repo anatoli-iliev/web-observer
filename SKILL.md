@@ -5,7 +5,7 @@ description: >-
   goes down and again when it recovers, Vercel error logs and Core Web Vitals,
   and GA4 traffic. Ask "is my site up", "did anything error on Vercel", or "how
   much traffic last week".
-version: 0.1.0
+version: 0.1.1
 homepage: https://github.com/anatoli-iliev/web-observer
 compatibility: openclaw >=1.0
 metadata:

@@ -7,6 +7,8 @@ import {
   hasLogsSurface,
   LOGS_INSTALL_HINT,
   REQUIRED_LOGS_REF,
+  groupErrors,
+  redactMessage,
   rejectUnknownPreset,
   tally,
   toSafeEntries,
@@ -97,12 +99,13 @@ describe("the redaction boundary", () => {
       level: "error",
       crashed: false,
       isError: true,
+      domain: "example.com",
     });
   });
 
-  it("carries the message only when the user opted in", () => {
+  it("carries the message only when the user opted in, with secrets redacted", () => {
     const payload = toSafeEntries(document([row()]), true);
-    expect(payload.entries[0]?.message).toContain(LEAK);
+    expect(payload.entries[0]?.message).toBe("Stripe call failed with key [redacted]");
     // Even opted in, the individual log lines and the raw row stay behind: the
     // opt-in is for a summary line, not for the whole row.
     expect(JSON.stringify(payload)).not.toContain("secretHeader");
@@ -276,5 +279,69 @@ describe("tallying", () => {
   it("reports a missing status as (none) rather than as 0", () => {
     const entries = toSafeEntries(document([row({ status: null })]), false).entries;
     expect(tally(entries).byStatus).toEqual([["(none)", 1]]);
+  });
+});
+
+describe("redacting an opted-in message", () => {
+  it("keeps an ordinary error readable", () => {
+    expect(redactMessage("[shop] order sync failed: 503 upstream timeout after 3 retries")).toBe(
+      "[shop] order sync failed: 503 upstream timeout after 3 retries",
+    );
+  });
+
+  it("keeps only the first non-empty line", () => {
+    expect(redactMessage("\nTypeError: x is undefined\n    at handler (/var/task/a.js:1:2)")).toBe(
+      "TypeError: x is undefined",
+    );
+  });
+
+  it("redacts the shapes secrets take", () => {
+    const message = redactMessage(
+      "token=abc password: 'hunter2' Bearer eyJabc.def.ghi user a.b@example.com " +
+        "key fake_key_9Zq8Yx7Wv6Ut5Sr4Qp3On2Ml postgres://u:p@db.host/x",
+    );
+    for (const secret of ["abc", "hunter2", "eyJabc", "a.b@example.com", "9Zq8Yx7", "u:p@"]) {
+      expect(message).not.toContain(secret);
+    }
+  });
+
+  it("leaves long words without digits alone", () => {
+    expect(redactMessage("DeprecationWarningAboutSomethingVeryLong")).toBe(
+      "DeprecationWarningAboutSomethingVeryLong",
+    );
+  });
+
+  it("caps the length", () => {
+    expect(redactMessage("x ".repeat(500)).length).toBeLessThanOrEqual(201);
+  });
+});
+
+describe("grouping errors into distinct ones", () => {
+  const entry = (overrides: Record<string, unknown>) =>
+    toSafeEntries(document([row({ message: "boom", ...overrides })]), true).entries[0]!;
+
+  it("treats one message on several routes as one error", () => {
+    const groups = groupErrors([
+      entry({ route: "/", requestId: "r1" }),
+      entry({ route: "/", requestId: "r2" }),
+      entry({ route: "/api/a", requestId: "r3" }),
+      entry({ message: "other", route: "/api/contact", requestId: "r4" }),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ count: 3, message: "boom", sampleRequestId: "r1" });
+    expect(groups[0]?.routes).toEqual([["/", 2], ["/api/a", 1]]);
+  });
+
+  it("without messages, separates by route and status", () => {
+    const entries = toSafeEntries(
+      document([row({ route: "/a" }), row({ route: "/a" }), row({ route: "/b", status: 502 })]),
+      false,
+    ).entries;
+    expect(groupErrors(entries).map((group) => group.count)).toEqual([2, 1]);
+  });
+
+  it("counts entries that only logged an error while responding normally", () => {
+    const [group] = groupErrors([entry({ status: 200 }), entry({ status: 500 })]);
+    expect(group?.loggedOnly).toBe(1);
   });
 });

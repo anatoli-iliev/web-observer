@@ -190,8 +190,9 @@ describe("the error watch, end to end", () => {
     const file = scratch();
     const first = await poll(file, [okResult(["a", "b", "c"])], 1_000_000);
     expect(first.message).toContain("3 new errors");
-    expect(first.message).toContain("3 x 500");
-    expect(first.message).toContain("/api/x");
+    expect(first.message).toContain("1 distinct");
+    expect(first.message).toContain("3 x GET /api/x");
+    expect(first.message).toContain("status 500");
     expect(first.code).toBe(0);
     expect(first.state.vercel["dobri-web"]?.alerting).toBe(true);
   });
@@ -465,5 +466,64 @@ describe("several projects", () => {
     expect(result.message).toBe("NO_REPLY");
     expect(result.state.vercel["dobri-web"]?.alerting).toBe(true);
     expect(Object.keys(result.state.vercel).sort()).toEqual(["dobri-web", "other-site"]);
+  });
+});
+
+describe("the alert text", () => {
+  function withMessages(rows: Array<{ id: string; message: string; route: string; status: number }>): RunResult {
+    return {
+      code: 0,
+      stdout: JSON.stringify({
+        query: {},
+        entries: rows.map((r) => ({
+          requestId: r.id,
+          timestamp: "2026-10-14T16:00:00Z",
+          status: r.status,
+          method: r.route === "/api/orders" ? "POST" : "GET",
+          path: r.route,
+          route: r.route,
+          domain: "shop.example",
+          crashed: false,
+          isError: true,
+          level: "error",
+          message: r.message,
+        })),
+        truncated: false,
+        notes: [],
+      }),
+      stderr: "",
+      timedOut: false,
+      spawnFailed: false,
+    };
+  }
+
+  it("names the site and lists each distinct error once, with its count and routes", async () => {
+    const file = scratch();
+    const config = configOf({
+      errors: { intervalMinutes: 15, windowMinutes: 20, threshold: 0, includeMessages: true },
+    });
+    const result = await poll(
+      file,
+      [
+        withMessages([
+          { id: "a", message: "DeprecationWarning: Buffer() is deprecated", route: "/", status: 200 },
+          { id: "b", message: "DeprecationWarning: Buffer() is deprecated", route: "/", status: 200 },
+          { id: "c", message: "DeprecationWarning: Buffer() is deprecated", route: "/b/[slug]", status: 200 },
+          { id: "d", message: "order sync failed: 503 upstream timeout", route: "/api/orders", status: 303 },
+        ]),
+      ],
+      1_000_000,
+      config,
+    );
+    const text = result.message;
+    expect(text).toContain("🟠 dobri-web (shop.example): 4 new errors");
+    expect(text).toContain("2 distinct");
+    expect(text).toContain('1. 3 x "DeprecationWarning: Buffer() is deprecated"');
+    expect(text).toContain("on GET / (2), /b/[slug] (1)");
+    expect(text).toContain('2. 1 x "order sync failed: 503 upstream timeout"');
+    expect(text).toContain("on POST /api/orders; status 303");
+    expect(text).toContain("not an HTTP failure");
+    expect(text).toContain("e.g. request d");
+    expect(text).not.toContain("includeMessages is off");
   });
 });

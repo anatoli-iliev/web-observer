@@ -66,7 +66,16 @@ export declare function partitionNew(entries: readonly SafeErrorEntry[], seen: R
     repeated: number;
     withoutId: number;
 };
-/** The alert text for a batch of new errors. */
+/** How many distinct errors an alert lists before summarising the rest. */
+export declare const MAX_GROUPS = 5;
+/**
+ * The alert text for a batch of new errors.
+ *
+ * Leads with the project and its domain, so the reader knows which site it is
+ * before anything else, then lists each distinct error once with how often it
+ * happened, where, and with what outcome. A flood of one error therefore reads
+ * as one line with a count, not as a pile of routes.
+ */
 export declare function formatErrorAlert(project: string, fresh: readonly SafeErrorEntry[], payload: ErrorsPayload, windowMinutes: number, includeMessages: boolean, atMs: number): string;
 /**
  * Run whichever parts of the Vercel watch are due.

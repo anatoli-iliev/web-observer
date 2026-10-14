@@ -262,7 +262,16 @@ export type SafeErrorEntry = {
   level: string | null;
   crashed: boolean;
   isError: boolean;
-  /** Present only when `vercel.errors.includeMessages` is true. */
+  /**
+   * The site's hostname, or "" when absent or not a plain hostname. Vercel only
+   * routes a request to a project through that project's own domains, so this
+   * names the site rather than repeating what a visitor typed.
+   */
+  domain: string;
+  /**
+   * Present only when `vercel.errors.includeMessages` is true, and even then
+   * only as {@link redactMessage} leaves it.
+   */
   message?: string;
 };
 
@@ -278,6 +287,48 @@ export type ErrorsPayload = {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+
+function asHostname(value: unknown): string {
+  const text = asString(value);
+  return text.length <= 253 && HOSTNAME.test(text) ? text.toLowerCase() : "";
+}
+
+/** The longest message an alert carries, after redaction. */
+export const MESSAGE_LIMIT = 200;
+
+/**
+ * Reduce an application's log message to a line that is reasonable to send to
+ * a chat the user opted into.
+ *
+ * The underlying skill scrubs only its own Vercel token, so this is the second
+ * line of defence for the user who turned `includeMessages` on: the first line
+ * of the message only, with the shapes secrets usually take replaced. It is
+ * pattern-based and cannot catch everything, which is why the opt-in exists.
+ *
+ * - `key=value` and `key: value` pairs whose key names a secret
+ * - `Bearer ...` and `Basic ...` credentials
+ * - email addresses
+ * - JWTs, and any unbroken run of 24 or more letters, digits, `_` or `-`
+ *   containing a digit, which is what API keys and session ids look like
+ * - credentials embedded in a URL
+ */
+export function redactMessage(message: string): string {
+  const first = (message.split(/\r?\n/).find((line) => line.trim() !== "") ?? "").trim();
+  const redacted = first
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, "$1[redacted]@")
+    .replace(
+      /\b((?:api[_-]?key|apikey|token|secret|password|passwd|pwd|auth|authorization|session|cookie|signature|sig|key)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&]+)/gi,
+      "$1[redacted]",
+    )
+    .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/[A-Za-z0-9_-]{24,}/g, (run) => (/\d/.test(run) ? "[redacted]" : run))
+    .replace(/\s+/g, " ");
+  return redacted.length > MESSAGE_LIMIT ? `${redacted.slice(0, MESSAGE_LIMIT)}…` : redacted;
 }
 
 function asNumberOrNull(value: unknown): number | null {
@@ -324,9 +375,10 @@ export function toSafeEntries(document: unknown, includeMessages: boolean): Erro
       level: typeof row["level"] === "string" ? row["level"] : null,
       crashed: row["crashed"] === true,
       isError: row["isError"] === true,
+      domain: asHostname(row["domain"]),
     };
     if (includeMessages) {
-      entry.message = asString(row["message"]);
+      entry.message = redactMessage(asString(row["message"]));
     }
     entries.push(entry);
   }
@@ -367,4 +419,82 @@ export function tally(entries: readonly SafeErrorEntry[]): ErrorTally {
   const order = (map: Map<string, number>): Array<[string, number]> =>
     [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   return { total: entries.length, byStatus: order(statuses), byRoute: order(routes) };
+}
+
+/** One distinct error in a poll: every entry that shares its cause. */
+export type ErrorGroup = {
+  count: number;
+  /** The redacted message, or null when messages are not included. */
+  message: string | null;
+  method: string;
+  /** Statuses seen, most frequent first. */
+  statuses: Array<[string, number]>;
+  /** Route patterns seen, most frequent first. Never concrete paths. */
+  routes: Array<[string, number]>;
+  level: string | null;
+  crashed: number;
+  /** Entries that responded below 500 without crashing. */
+  loggedOnly: number;
+  /** A request id to look up in the Vercel dashboard. */
+  sampleRequestId: string;
+};
+
+/**
+ * Group a poll's errors into distinct ones, most frequent first.
+ *
+ * With messages included, entries sharing a message are one error wherever it
+ * was raised, because one bug often fails several routes. Without them, the
+ * best available identity is the method, route, status and whether it crashed.
+ */
+export function groupErrors(entries: readonly SafeErrorEntry[]): ErrorGroup[] {
+  const groups = new Map<string, { group: ErrorGroup; statuses: Map<string, number>; routes: Map<string, number> }>();
+  for (const entry of entries) {
+    const status = entry.status === null ? "(none)" : String(entry.status);
+    const route = entry.route !== "" ? entry.route : "(unrouted)";
+    const message = entry.message !== undefined && entry.message !== "" ? entry.message : null;
+    const key =
+      message !== null
+        ? `m\u0000${message}`
+        : `r\u0000${entry.method}\u0000${route}\u0000${status}\u0000${entry.crashed}`;
+    let slot = groups.get(key);
+    if (slot === undefined) {
+      slot = {
+        group: {
+          count: 0,
+          message,
+          method: entry.method,
+          statuses: [],
+          routes: [],
+          level: entry.level,
+          crashed: 0,
+          loggedOnly: 0,
+          sampleRequestId: entry.requestId,
+        },
+        statuses: new Map(),
+        routes: new Map(),
+      };
+      groups.set(key, slot);
+    }
+    const { group } = slot;
+    group.count += 1;
+    if (entry.crashed) group.crashed += 1;
+    if (!entry.crashed && entry.status !== null && entry.status < 500) group.loggedOnly += 1;
+    if (group.sampleRequestId === "") group.sampleRequestId = entry.requestId;
+    slot.statuses.set(status, (slot.statuses.get(status) ?? 0) + 1);
+    slot.routes.set(route, (slot.routes.get(route) ?? 0) + 1);
+  }
+  const order = (map: Map<string, number>): Array<[string, number]> =>
+    [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return [...groups.values()]
+    .map(({ group, statuses, routes }) => ({ ...group, statuses: order(statuses), routes: order(routes) }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** The hostname most of a poll's errors were served on, or "" when none is known. */
+export function mainDomain(entries: readonly SafeErrorEntry[]): string {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.domain !== "") counts.set(entry.domain, (counts.get(entry.domain) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "";
 }

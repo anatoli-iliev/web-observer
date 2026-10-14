@@ -31,6 +31,7 @@ import { runVercelWatch } from "../commands/vercelWatch.js";
 import { parseArgs, USAGE } from "./args.js";
 import { EXIT_CONFIG, EXIT_FAILURE, EXIT_OK } from "./exit.js";
 import { line, note, type Streams } from "./render.js";
+import { deferErr, releaseErr, runLogPath } from "./runlog.js";
 
 /** A configuration read from disk, with enough context for a good message. */
 type LoadedConfig = {
@@ -168,6 +169,31 @@ export async function main(argv: readonly string[], env: Env, streams: Streams):
   }
   const config = loaded.config;
 
+  // A scheduled run's stderr is delivered to the chat alongside its stdout, so
+  // a successful one keeps its notes for the run log instead. See runlog.ts.
+  const scheduled =
+    (args.command === "watch" || args.command === "vercel-watch" || args.command === "digest") &&
+    !args.dryRun;
+  // Spread so the command keeps the narrowing the checks above gave it.
+  const configured = { ...args, command: args.command };
+  if (!scheduled) return await runConfigured(configured, config, configFile, stateFile, env, streams);
+  const quiet = deferErr(streams);
+  const code = await runConfigured(configured, config, configFile, stateFile, env, quiet);
+  releaseErr(streams, quiet.held(), code, runLogPath(stateFile), args.command, Date.now());
+  return code;
+}
+
+/** Run a command that needs a valid configuration. */
+async function runConfigured(
+  args: ReturnType<typeof parseArgs> & {
+    command: Exclude<ReturnType<typeof parseArgs>["command"], "help" | "version" | "doctor" | "vercel" | "ga4">;
+  },
+  config: Config,
+  configFile: string,
+  stateFile: string,
+  env: Env,
+  streams: Streams,
+): Promise<number> {
   switch (args.command) {
     case "check":
       return await runCheckCommand(

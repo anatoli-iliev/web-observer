@@ -166,7 +166,16 @@ export type SafeErrorEntry = {
     level: string | null;
     crashed: boolean;
     isError: boolean;
-    /** Present only when `vercel.errors.includeMessages` is true. */
+    /**
+     * The site's hostname, or "" when absent or not a plain hostname. Vercel only
+     * routes a request to a project through that project's own domains, so this
+     * names the site rather than repeating what a visitor typed.
+     */
+    domain: string;
+    /**
+     * Present only when `vercel.errors.includeMessages` is true, and even then
+     * only as {@link redactMessage} leaves it.
+     */
     message?: string;
 };
 export type ErrorsPayload = {
@@ -178,6 +187,25 @@ export type ErrorsPayload = {
     since: string | null;
     until: string | null;
 };
+/** The longest message an alert carries, after redaction. */
+export declare const MESSAGE_LIMIT = 200;
+/**
+ * Reduce an application's log message to a line that is reasonable to send to
+ * a chat the user opted into.
+ *
+ * The underlying skill scrubs only its own Vercel token, so this is the second
+ * line of defence for the user who turned `includeMessages` on: the first line
+ * of the message only, with the shapes secrets usually take replaced. It is
+ * pattern-based and cannot catch everything, which is why the opt-in exists.
+ *
+ * - `key=value` and `key: value` pairs whose key names a secret
+ * - `Bearer ...` and `Basic ...` credentials
+ * - email addresses
+ * - JWTs, and any unbroken run of 24 or more letters, digits, `_` or `-`
+ *   containing a digit, which is what API keys and session ids look like
+ * - credentials embedded in a URL
+ */
+export declare function redactMessage(message: string): string;
 /**
  * Parse `errors --json` into the safe subset.
  *
@@ -199,3 +227,30 @@ export type ErrorTally = {
 };
 /** Count new errors by status and by route, most frequent first. */
 export declare function tally(entries: readonly SafeErrorEntry[]): ErrorTally;
+/** One distinct error in a poll: every entry that shares its cause. */
+export type ErrorGroup = {
+    count: number;
+    /** The redacted message, or null when messages are not included. */
+    message: string | null;
+    method: string;
+    /** Statuses seen, most frequent first. */
+    statuses: Array<[string, number]>;
+    /** Route patterns seen, most frequent first. Never concrete paths. */
+    routes: Array<[string, number]>;
+    level: string | null;
+    crashed: number;
+    /** Entries that responded below 500 without crashing. */
+    loggedOnly: number;
+    /** A request id to look up in the Vercel dashboard. */
+    sampleRequestId: string;
+};
+/**
+ * Group a poll's errors into distinct ones, most frequent first.
+ *
+ * With messages included, entries sharing a message are one error wherever it
+ * was raised, because one bug often fails several routes. Without them, the
+ * best available identity is the method, route, status and whether it crashed.
+ */
+export declare function groupErrors(entries: readonly SafeErrorEntry[]): ErrorGroup[];
+/** The hostname most of a poll's errors were served on, or "" when none is known. */
+export declare function mainDomain(entries: readonly SafeErrorEntry[]): string;

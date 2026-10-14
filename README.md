@@ -235,9 +235,31 @@ team-scoped token covers them all.
 on any. Errors below the threshold are deliberately **not** remembered, so a slow
 trickle still adds up to an alert instead of being forgotten one poll at a time.
 
-### Your application's log text is not forwarded
+### What an error alert says
 
-Alerts carry counts, statuses and affected routes. They do not carry the log
+An alert names the project and its domain, then lists each **distinct** error
+once: how many times it happened, on which routes, with what status, whether it was an
+HTTP failure or only counts because it logged an error line,
+and one request id to look up in the Vercel dashboard. Twenty-four copies of one
+warning read as one line with a count.
+
+```
+🟠 my-project (example.com): 25 new errors on Vercel in the last 20 minutes, 2 distinct:
+1. 24 x "(node:6) [DEP0005] DeprecationWarning: Buffer() is deprecated…"
+   on GET / (13), /api/cron/cleanup (5), /products/[slug] (5) and 1 more; status 200; not an HTTP failure; counted because it logged at error level
+   e.g. request fra1::abcde-1791…
+2. 1 x "order sync failed: 503 upstream timeout"
+   on POST /api/orders; status 303; not an HTTP failure; counted because it logged at error level
+   e.g. request fra1::fghij-1791…
+At: 2026-10-14 18:25:45 +03:00
+```
+
+The quoted messages appear only with `includeMessages` on. Without it, errors
+are told apart by method, route and status instead.
+
+### Your application's log text is not forwarded by default
+
+By default, alerts carry counts, statuses and affected routes, not the log
 messages your code printed.
 
 That is because the underlying skill scrubs only its own Vercel token from log
@@ -247,7 +269,12 @@ the bridge rather than at the formatter. With `includeMessages` off, it is never
 copied out of `src/bridge/vercel.ts` at all, and no downstream mistake can leak
 it.
 
-Turn it on only having decided that is fine for your logs.
+Turn it on only having decided that is fine for your logs. When it is on, only
+the first line of each message is sent, capped at 200 characters, with the usual
+shapes of secrets replaced by `[redacted]`: `key=value` pairs whose key names a
+secret, bearer and basic credentials, email addresses, JWTs, credentials in a
+URL, and long runs of letters and digits such as API keys. That is pattern
+matching, not a guarantee, which is why it stays opt-in.
 
 ## GA4
 
@@ -292,8 +319,12 @@ attempts with a ten-second pause between them reaches exactly 30 seconds.
 
 Two consequences, if you plan to change the code:
 
-- **Anything on stdout during a scheduled run is sent to you.** Diagnostics go to
-  stderr, where the cron run log keeps them without delivering them.
+- **Anything a scheduled run prints is sent to you, stderr included.** OpenClaw
+  stays silent only when the whole output is exactly `NO_REPLY`; any stderr is
+  delivered with it under a `stderr:` heading. So `watch`, `vercel-watch` and
+  `digest` hold their notes back and, when the run succeeds, append them to
+  `web-observer.log` beside the state file instead. A failed run still writes
+  them to stderr, because then they explain the failure.
 - **A scheduled run exits 0 even when it alerts.** An alert is the tool working. A
   non-zero exit would also trigger OpenClaw's own cron failure notification, so
   one outage would reach you twice by two different routes.

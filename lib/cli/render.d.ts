@@ -7,8 +7,9 @@
  * the user, so a stray line is a notification.
  *
  * The division is strict. Anything a person is meant to read goes to stdout only
- * when it is the answer. Diagnostics, warnings and progress go to stderr, where
- * cron records them in the run log without delivering them.
+ * when it is the answer. Diagnostics, warnings and progress go to stderr. A
+ * scheduled run holds them back and, when it succeeds, writes them to the run log
+ * instead (see runlog.ts), because OpenClaw delivers stderr alongside stdout.
  */
 export type Streams = {
     out: (text: string) => void;

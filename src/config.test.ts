@@ -349,3 +349,44 @@ describe("uptime.enabled", () => {
     expect(config.uptime.watches).toHaveLength(1);
   });
 });
+
+describe("several sites in the optional modules", () => {
+  it("reads one Vercel project as a list of one", () => {
+    expect(parseConfig({ vercel: { enabled: true, project: "dobri-web" } }).vercel.projects).toEqual([
+      "dobri-web",
+    ]);
+  });
+
+  it("reads several Vercel projects in order", () => {
+    expect(
+      parseConfig({ vercel: { enabled: true, projects: ["dobri-web", "other-site"] } }).vercel.projects,
+    ).toEqual(["dobri-web", "other-site"]);
+  });
+
+  it("refuses project and projects together", () => {
+    expect(() =>
+      parseConfig({ vercel: { enabled: true, project: "a", projects: ["b"] } }),
+    ).toThrow(/vercel\.projects: is set alongside project/);
+  });
+
+  it("refuses a repeated project", () => {
+    expect(() => parseConfig({ vercel: { enabled: true, projects: ["a", "a"] } })).toThrow(
+      /vercel\.projects\[1\]: repeats "a"/,
+    );
+  });
+
+  it("refuses an empty project list while enabled", () => {
+    expect(() => parseConfig({ vercel: { enabled: true, projects: [] } })).toThrow(
+      /vercel\.project: is required/,
+    );
+  });
+
+  it("reads GA4 property or properties", () => {
+    expect(parseConfig({ ga4: { property: "123" } }).ga4.properties).toEqual(["123"]);
+    expect(parseConfig({ ga4: { properties: ["123", "456"] } }).ga4.properties).toEqual([
+      "123",
+      "456",
+    ]);
+    expect(parseConfig({ ga4: {} }).ga4.properties).toEqual([]);
+  });
+});

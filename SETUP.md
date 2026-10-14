@@ -171,6 +171,15 @@ node <skill-dir>/lib/cli.js vercel overview
 With no project configured, that lists the account's projects instead of
 guessing one.
 
+For more than one site, list them under `projects` instead of `project`:
+
+```json
+{ "vercel": { "enabled": true, "projects": ["my-project", "my-other-project"] } }
+```
+
+Each project is polled separately and keeps its own alert state. Uptime needs no
+equivalent: add one entry per URL to `uptime.watches`.
+
 Then test the poll without alerting:
 
 ```bash
@@ -198,6 +207,9 @@ time. Once it reports `ok`:
 ```json
 { "ga4": { "enabled": true, "property": "123456789", "digest": { "cron": "0 9 * * 1", "since": "7d" } } }
 ```
+
+For several sites, write `"properties": ["123456789", "987654321"]` instead of
+`property`; the digest gets one section per property.
 
 ```bash
 node <skill-dir>/lib/cli.js digest --dry-run

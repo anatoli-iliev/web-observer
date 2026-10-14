@@ -124,9 +124,13 @@ export function rejectUnknownPreset(argv: readonly string[]): string | null {
   return null;
 }
 
-/** The arguments a scheduled digest runs with. */
-export function digestArgv(config: Config): string[] {
+/**
+ * The arguments a scheduled digest runs with.
+ *
+ * @param property The property to report on, or null for open-ga4's default.
+ */
+export function digestArgv(config: Config, property: string | null): string[] {
   const argv = [config.ga4.digest.preset, "--since", config.ga4.digest.since];
-  if (config.ga4.property !== null) argv.push("--property", config.ga4.property);
+  if (property !== null) argv.push("--property", property);
   return argv;
 }

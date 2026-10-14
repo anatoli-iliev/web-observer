@@ -30,7 +30,13 @@ import { EXIT_CONFIG, EXIT_FAILURE, EXIT_OK } from "../cli/exit.js";
 import { line, note, type Streams } from "../cli/render.js";
 import type { Config } from "../config.js";
 import type { Env } from "../paths.js";
-import { loadState, pruneSeenIds, type State } from "../state.js";
+import {
+  loadState,
+  pruneSeenIds,
+  vercelStateOf,
+  type State,
+  type VercelWatchState,
+} from "../state.js";
 import { SILENT_TOKEN, stamp } from "../uptime/format.js";
 import {
   budgetArgv,
@@ -199,7 +205,6 @@ export async function runVercelWatch(
   const { config, streams } = context;
   const nowMs = context.now();
   const state = loadState(context.stateFile);
-  const vercel = { ...state.vercel, seenRequestIds: { ...state.vercel.seenRequestIds } };
   const blocks: string[] = [];
   let code = EXIT_OK;
 
@@ -234,16 +239,77 @@ export async function runVercelWatch(
     return { code: EXIT_CONFIG, message: "", state };
   }
 
-  const project = config.vercel.project ?? "(default project)";
+  const nextVercel: Record<string, VercelWatchState> = {};
+  const noLogsReported = { value: false };
+  for (const [index, project] of config.vercel.projects.entries()) {
+    const previous = vercelStateOf(state, project, index === 0);
+    const vercel = { ...previous, seenRequestIds: { ...previous.seenRequestIds } };
+    const projectCode = await pollProject(
+      context,
+      deps,
+      project,
+      vercel,
+      nowMs,
+      blocks,
+      noLogsReported,
+    );
+    // The most serious outcome wins: a configuration problem on one project
+    // must not be hidden by another project polling cleanly.
+    if (projectCode === EXIT_CONFIG || (projectCode !== EXIT_OK && code === EXIT_OK)) {
+      code = projectCode;
+    }
+    nextVercel[project] = vercel;
+  }
+
+  const message = blocks.length === 0 ? SILENT_TOKEN : blocks.join("\n\n");
+  // Projects no longer configured are dropped, along with any legacy entry.
+  const nextState: State = { ...state, vercel: nextVercel };
+
+  if (options.dryRun) {
+    note(streams, "dry run: the message below would have been delivered.");
+    note(streams, message);
+    note(streams, "dry run: state was not written, so nothing was consumed.");
+    line(streams, SILENT_TOKEN);
+    return { code, message, state };
+  }
+
+  line(streams, message);
+  return { code, message, state: nextState };
+}
+
+/**
+ * Run whichever parts of the Vercel watch are due for one project.
+ *
+ * @param vercel This project's state, updated in place.
+ * @param blocks Messages to deliver, appended to.
+ * @param noLogsReported Shared across projects, so a missing logs surface is
+ *   announced once rather than once per site.
+ * @returns The exit code for this project alone.
+ */
+async function pollProject(
+  context: VercelWatchContext,
+  deps: VercelWatchDeps,
+  project: string,
+  vercel: VercelWatchState,
+  nowMs: number,
+  blocks: string[],
+  noLogsReported: { value: boolean },
+): Promise<number> {
+  const { config, streams } = context;
+  const { errors, budget } = config.vercel;
+  let code = EXIT_OK;
 
   // ---- error logs -------------------------------------------------------
-  if (config.vercel.errors.enabled && isDue(vercel.lastPollAtMs, config.vercel.errors.intervalMinutes, nowMs)) {
+  if (errors.enabled && isDue(vercel.lastPollAtMs, errors.intervalMinutes, nowMs)) {
     if (deps.status.kind === "no-logs") {
       // Reported once rather than every poll: an installed copy without the
       // logs surface will not fix itself, and a message every fifteen minutes
       // about it would be worse than the missing feature.
-      if (!vercel.failing) {
+      if (!vercel.failing && !noLogsReported.value) {
         blocks.push(`⚠️ Vercel error watch cannot run: ${deps.status.message}`);
+        noLogsReported.value = true;
+      }
+      if (!vercel.failing) {
         vercel.failing = true;
       } else {
         note(streams, `error: ${deps.status.message}`);
@@ -253,11 +319,11 @@ export async function runVercelWatch(
       const sinceLastPoll =
         vercel.lastPollAtMs === null ? null : (nowMs - vercel.lastPollAtMs) / 60_000;
       const windowMinutes = windowFor(
-        config.vercel.errors.windowMinutes,
-        config.vercel.errors.intervalMinutes,
+        errors.windowMinutes,
+        errors.intervalMinutes,
         sinceLastPoll,
       );
-      const result = await deps.invoke(errorsArgv(config, windowMinutes));
+      const result = await deps.invoke(errorsArgv(project, windowMinutes));
 
       if (result.code !== 0) {
         const failure = describeFailure(result, "the Vercel errors query");
@@ -278,12 +344,12 @@ export async function runVercelWatch(
         try {
           payload = toSafeEntries(
             JSON.parse(result.stdout) as unknown,
-            config.vercel.errors.includeMessages,
+            errors.includeMessages,
           );
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
-          note(streams, `error: could not read the Vercel errors output: ${reason}`);
-          return { code: EXIT_FAILURE, message: "", state };
+          note(streams, `error: could not read the Vercel errors output for ${project}: ${reason}`);
+          return EXIT_FAILURE;
         }
 
         if (vercel.failing) {
@@ -294,7 +360,7 @@ export async function runVercelWatch(
         const { fresh, repeated } = partitionNew(payload.entries, vercel.seenRequestIds);
         vercel.lastPollAtMs = nowMs;
 
-        if (fresh.length > config.vercel.errors.threshold) {
+        if (fresh.length > errors.threshold) {
           if (!vercel.alerting) vercel.alerting = true;
           // Ids are remembered only once they have actually been reported. A
           // batch that stayed under the threshold is deliberately left
@@ -311,7 +377,7 @@ export async function runVercelWatch(
               fresh,
               payload,
               windowMinutes,
-              config.vercel.errors.includeMessages,
+              errors.includeMessages,
               nowMs,
             ),
           );
@@ -353,17 +419,17 @@ export async function runVercelWatch(
 
   // ---- performance budget ----------------------------------------------
   if (
-    config.vercel.budget.enabled &&
-    isDue(vercel.lastBudgetPollAtMs, config.vercel.budget.intervalMinutes, nowMs)
+    budget.enabled &&
+    isDue(vercel.lastBudgetPollAtMs, budget.intervalMinutes, nowMs)
   ) {
-    const result = await deps.invoke(budgetArgv(config));
+    const result = await deps.invoke(budgetArgv(config, project));
     // Exit 3 is that skill's "the query worked and a threshold was exceeded",
     // which is the whole reason it exists and is not a failure.
     if (result.code === 3) {
       vercel.lastBudgetPollAtMs = nowMs;
       if (!vercel.budgetAlerting) {
         vercel.budgetAlerting = true;
-        const thresholds = Object.entries(config.vercel.budget.metrics)
+        const thresholds = Object.entries(budget.metrics)
           .map(([metric, value]) => `${metric} ${value}`)
           .join(", ");
         blocks.push(
@@ -389,17 +455,6 @@ export async function runVercelWatch(
     }
   }
 
-  const message = blocks.length === 0 ? SILENT_TOKEN : blocks.join("\n\n");
-  const nextState: State = { ...state, vercel };
 
-  if (options.dryRun) {
-    note(streams, "dry run: the message below would have been delivered.");
-    note(streams, message);
-    note(streams, "dry run: state was not written, so nothing was consumed.");
-    line(streams, SILENT_TOKEN);
-    return { code, message, state };
-  }
-
-  line(streams, message);
-  return { code, message, state: nextState };
+  return code;
 }

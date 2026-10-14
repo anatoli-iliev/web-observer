@@ -157,11 +157,11 @@ describe("the error poll arguments", () => {
   // refused with HTTP 400 ExceedsBillingLimitError, while any --since with the
   // end left at now succeeds. So there must be no way to express an end here.
   it("never asks for an end to the window", () => {
-    expect(errorsArgv(config, 20)).not.toContain("--until");
+    expect(errorsArgv("dobri-web", 20)).not.toContain("--until");
   });
 
   it("asks only for a start, in minutes", () => {
-    expect(errorsArgv(config, 45)).toEqual([
+    expect(errorsArgv("dobri-web", 45)).toEqual([
       "errors",
       "--since",
       "45m",
@@ -174,7 +174,7 @@ describe("the error poll arguments", () => {
   });
 
   it("asks for the maximum rows, so a flood is not undercounted", () => {
-    expect(errorsArgv(config, 20)).toContain("200");
+    expect(errorsArgv("dobri-web", 20)).toContain("200");
   });
 });
 
@@ -183,7 +183,7 @@ describe("the budget arguments", () => {
     const config = parseConfig({
       vercel: { enabled: true, project: "p", budget: { metrics: { lcp: 2500, cls: 0.1 } } },
     });
-    const argv = budgetArgv(config);
+    const argv = budgetArgv(config, "p");
     expect(argv[0]).toBe("vitals");
     expect(argv).toContain("lcp=2500");
     expect(argv).toContain("cls=0.1");
@@ -196,8 +196,8 @@ describe("the budget arguments", () => {
     const config = parseConfig({
       vercel: { enabled: true, project: "p", budget: { metrics: { lcp: 2500 } } },
     });
-    expect(budgetArgv(config)).not.toContain("--token");
-    expect(errorsArgv(config, 20)).not.toContain("--token");
+    expect(budgetArgv(config, "p")).not.toContain("--token");
+    expect(errorsArgv("dobri-web", 20)).not.toContain("--token");
   });
 });
 

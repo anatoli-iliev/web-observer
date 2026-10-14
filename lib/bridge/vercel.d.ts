@@ -145,9 +145,9 @@ export declare function runVercel(context: VercelRunContext, argv: readonly stri
  * this file's header. `--limit` asks for the maximum the surface will fetch,
  * because an alert that undercounts a flood is worse than a slower poll.
  */
-export declare function errorsArgv(config: Config, windowMinutes: number): string[];
-/** The arguments for one performance-budget check. */
-export declare function budgetArgv(config: Config): string[];
+export declare function errorsArgv(project: string, windowMinutes: number): string[];
+/** The arguments for one performance-budget check of one project. */
+export declare function budgetArgv(config: Config, project: string): string[];
 /**
  * One error, reduced to fields that are safe to put in a chat message.
  *

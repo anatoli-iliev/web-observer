@@ -53,8 +53,22 @@ export type VercelWatchState = {
 export type State = {
   version: 1;
   watches: Record<string, WatchState>;
-  vercel: VercelWatchState;
+  /**
+   * One entry per Vercel project, keyed by the name in the configuration.
+   *
+   * Releases before multi-project support kept a single unkeyed object here.
+   * That is read back under {@link LEGACY_VERCEL_KEY} and handed to the first
+   * configured project by {@link vercelStateOf}, so an upgrade neither repeats
+   * an alert nor forgets an outstanding one.
+   */
+  vercel: Record<string, VercelWatchState>;
 };
+
+/**
+ * Where a pre-multi-project Vercel state is parked until a project claims it.
+ * Parentheses and a space cannot occur in a Vercel project name or id.
+ */
+export const LEGACY_VERCEL_KEY = "(single project)";
 
 export function freshWatchState(): WatchState {
   return {
@@ -80,7 +94,7 @@ export function freshVercelState(): VercelWatchState {
 }
 
 export function freshState(): State {
-  return { version: 1, watches: {}, vercel: freshVercelState() };
+  return { version: 1, watches: {}, vercel: {} };
 }
 
 function readNumberOrNull(value: unknown): number | null {
@@ -130,26 +144,51 @@ export function parseState(document: unknown): State {
 
   const vercel = object["vercel"];
   if (typeof vercel === "object" && vercel !== null && !Array.isArray(vercel)) {
-    const entry = vercel as Record<string, unknown>;
-    const seen: SeenIds = {};
-    const rawSeen = entry["seenRequestIds"];
-    if (typeof rawSeen === "object" && rawSeen !== null && !Array.isArray(rawSeen)) {
-      for (const [id, at] of Object.entries(rawSeen as Record<string, unknown>)) {
-        const stamp = readNumberOrNull(at);
-        if (stamp !== null) seen[id] = stamp;
+    const entries = vercel as Record<string, unknown>;
+    if ("seenRequestIds" in entries || "lastPollAtMs" in entries) {
+      state.vercel[LEGACY_VERCEL_KEY] = parseVercelState(entries);
+    } else {
+      for (const [project, raw] of Object.entries(entries)) {
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
+        state.vercel[project] = parseVercelState(raw as Record<string, unknown>);
       }
     }
-    state.vercel = {
-      seenRequestIds: seen,
-      alerting: entry["alerting"] === true,
-      lastPollAtMs: readNumberOrNull(entry["lastPollAtMs"]),
-      failing: entry["failing"] === true,
-      budgetAlerting: entry["budgetAlerting"] === true,
-      lastBudgetPollAtMs: readNumberOrNull(entry["lastBudgetPollAtMs"]),
-    };
   }
 
   return state;
+}
+
+function parseVercelState(entry: Record<string, unknown>): VercelWatchState {
+  const seen: SeenIds = {};
+  const rawSeen = entry["seenRequestIds"];
+  if (typeof rawSeen === "object" && rawSeen !== null && !Array.isArray(rawSeen)) {
+    for (const [id, at] of Object.entries(rawSeen as Record<string, unknown>)) {
+      const stamp = readNumberOrNull(at);
+      if (stamp !== null) seen[id] = stamp;
+    }
+  }
+  return {
+    seenRequestIds: seen,
+    alerting: entry["alerting"] === true,
+    lastPollAtMs: readNumberOrNull(entry["lastPollAtMs"]),
+    failing: entry["failing"] === true,
+    budgetAlerting: entry["budgetAlerting"] === true,
+    lastBudgetPollAtMs: readNumberOrNull(entry["lastBudgetPollAtMs"]),
+  };
+}
+
+/**
+ * The Vercel state for one project, creating a blank one on first sight.
+ *
+ * @param first Whether this is the first configured project, the one that
+ *   inherits a state written before projects were keyed.
+ */
+export function vercelStateOf(state: State, project: string, first: boolean): VercelWatchState {
+  return (
+    state.vercel[project] ??
+    (first ? state.vercel[LEGACY_VERCEL_KEY] : undefined) ??
+    freshVercelState()
+  );
 }
 
 /** The state for one watch, creating a blank one on first sight. */

@@ -231,16 +231,13 @@ export async function runVercel(
  * this file's header. `--limit` asks for the maximum the surface will fetch,
  * because an alert that undercounts a flood is worse than a slower poll.
  */
-export function errorsArgv(config: Config, windowMinutes: number): string[] {
-  const argv = ["errors", "--since", `${windowMinutes}m`, "--json", "--limit", "200"];
-  if (config.vercel.project !== null) argv.push("--project", config.vercel.project);
-  return argv;
+export function errorsArgv(project: string, windowMinutes: number): string[] {
+  return ["errors", "--since", `${windowMinutes}m`, "--json", "--limit", "200", "--project", project];
 }
 
-/** The arguments for one performance-budget check. */
-export function budgetArgv(config: Config): string[] {
-  const argv = ["vitals"];
-  if (config.vercel.project !== null) argv.push("--project", config.vercel.project);
+/** The arguments for one performance-budget check of one project. */
+export function budgetArgv(config: Config, project: string): string[] {
+  const argv = ["vitals", "--project", project];
   for (const [metric, threshold] of Object.entries(config.vercel.budget.metrics)) {
     argv.push("--budget", `${metric}=${threshold}`);
   }

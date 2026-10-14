@@ -157,27 +157,43 @@ export async function runDigestCommand(
     return EXIT_CONFIG;
   }
 
-  const result = await deps.invoke(digestArgv(context.config));
-  if (result.code !== 0 || result.stdout.trim() === "") {
-    const detail = result.spawnFailed
-      ? result.stderr.trim()
-      : result.timedOut
-        ? "it did not finish in time"
-        : (result.stderr.trim() || result.stdout.trim()).split("\n").slice(0, 4).join(" ");
-    note(context.streams, `error: the GA4 digest failed: ${detail}`);
-    return result.code === 2 ? EXIT_CONFIG : EXIT_FAILURE;
+  // One section per property. A property that fails is reported in the run log
+  // and the others are still delivered: one broken credential should not cost
+  // every other site its digest.
+  const properties = context.config.ga4.properties;
+  const targets: (string | null)[] = properties.length === 0 ? [null] : properties;
+  const since = context.config.ga4.digest.since;
+  const sections: string[] = [];
+  let code = EXIT_OK;
+  for (const property of targets) {
+    const result = await deps.invoke(digestArgv(context.config, property));
+    if (result.code !== 0 || result.stdout.trim() === "") {
+      const detail = result.spawnFailed
+        ? result.stderr.trim()
+        : result.timedOut
+          ? "it did not finish in time"
+          : (result.stderr.trim() || result.stdout.trim()).split("\n").slice(0, 4).join(" ");
+      const which = property === null ? "" : ` for property ${property}`;
+      note(context.streams, `error: the GA4 digest${which} failed: ${detail}`);
+      if (code !== EXIT_CONFIG) code = result.code === 2 ? EXIT_CONFIG : EXIT_FAILURE;
+      continue;
+    }
+    const heading =
+      targets.length > 1
+        ? `📈 Traffic digest for property ${property}, last ${since}`
+        : `📈 Traffic digest, last ${since}`;
+    sections.push(`${heading}\n\n${result.stdout.trimEnd()}`);
   }
-
-  const heading = `📈 Traffic digest, last ${context.config.ga4.digest.since}`;
-  const message = `${heading}\n\n${result.stdout.trimEnd()}`;
+  if (sections.length === 0) return code;
+  const message = sections.join("\n\n");
 
   if (options.dryRun) {
     note(context.streams, "dry run: the message below would have been delivered.");
     note(context.streams, message);
     line(context.streams, SILENT_TOKEN);
-    return EXIT_OK;
+    return code;
   }
 
   line(context.streams, message);
-  return EXIT_OK;
+  return code;
 }

@@ -127,8 +127,14 @@ export type VercelBudgetConfig = {
 
 export type VercelConfig = {
   enabled: boolean;
-  /** Project name or `prj_` id. */
-  project: string | null;
+  /**
+   * Project names or `prj_` ids, in the order they are polled.
+   *
+   * Written in the file as `project` for one or `projects` for several. Every
+   * project shares the error and budget settings below, and keeps its own state,
+   * so an outage on one site neither raises nor clears an alert for another.
+   */
+  projects: string[];
   errors: VercelErrorsConfig;
   budget: VercelBudgetConfig;
 };
@@ -143,7 +149,11 @@ export type Ga4DigestConfig = {
 
 export type Ga4Config = {
   enabled: boolean;
-  property: string | null;
+  /**
+   * Property ids, one digest section each. Written as `property` for one or
+   * `properties` for several. Empty means the open-ga4 skill's own default.
+   */
+  properties: string[];
   digest: Ga4DigestConfig;
 };
 
@@ -667,10 +677,52 @@ function readMetrics(path: ConfigPath, value: unknown): Record<string, number> {
   return metrics;
 }
 
+/**
+ * A list of names written either as one string under `singular` or as an array
+ * under `plural`.
+ *
+ * Both spellings are accepted because a single site is the common case and the
+ * plural is what a second site needs; both at once is refused, since which one
+ * won would be invisible from the output.
+ */
+function readNameList(
+  path: ConfigPath,
+  object: Record<string, unknown>,
+  singular: string,
+  plural: string,
+): string[] {
+  const one = object[singular];
+  const many = object[plural];
+  if (one !== undefined && one !== null && many !== undefined) {
+    throw new ConfigError(
+      `${path}.${plural}`,
+      `is set alongside ${singular}. Use ${singular} for one or ${plural} for several, not both`,
+    );
+  }
+  if (many === undefined) {
+    const name = readNullableString(`${path}.${singular}`, one, null);
+    return name === null ? [] : [name];
+  }
+  if (!Array.isArray(many)) {
+    throw new ConfigError(`${path}.${plural}`, `must be an array, not ${describe(many)}`);
+  }
+  const names = many.map((item, index) => readString(`${path}.${plural}[${index}]`, item, ""));
+  for (const [index, name] of names.entries()) {
+    const previous = names.indexOf(name);
+    if (previous !== index) {
+      throw new ConfigError(
+        `${path}.${plural}[${index}]`,
+        `repeats ${JSON.stringify(name)}, already listed at ${plural}[${previous}]`,
+      );
+    }
+  }
+  return names;
+}
+
 function readVercel(path: ConfigPath, value: unknown): VercelConfig {
   const disabled: VercelConfig = {
     enabled: false,
-    project: null,
+    projects: [],
     errors: {
       enabled: false,
       intervalMinutes: 15,
@@ -682,9 +734,9 @@ function readVercel(path: ConfigPath, value: unknown): VercelConfig {
   };
   if (value === undefined) return disabled;
   const object = requireObject(path, value);
-  rejectUnknownKeys(path, object, ["enabled", "project", "errors", "budget"]);
+  rejectUnknownKeys(path, object, ["enabled", "project", "projects", "errors", "budget"]);
   const enabled = readBoolean(`${path}.enabled`, object["enabled"], false);
-  const project = readNullableString(`${path}.project`, object["project"], null);
+  const projects = readNameList(path, object, "project", "projects");
 
   const errorsRaw = object["errors"];
   let errors = disabled.errors;
@@ -764,27 +816,28 @@ function readVercel(path: ConfigPath, value: unknown): VercelConfig {
     };
   }
 
-  if (enabled && project === null) {
+  if (enabled && projects.length === 0) {
     throw new ConfigError(
       `${path}.project`,
       "is required when the Vercel module is enabled: every query names exactly one " +
-        "project. Run the vercel-insights skill's --list-projects to see the names",
+        "project. Set project for one site or projects for several. Run the " +
+        "vercel-insights skill's --list-projects to see the names",
     );
   }
-  return { enabled, project, errors, budget };
+  return { enabled, projects, errors, budget };
 }
 
 function readGa4(path: ConfigPath, value: unknown): Ga4Config {
   const disabled: Ga4Config = {
     enabled: false,
-    property: null,
+    properties: [],
     digest: { enabled: false, cron: "0 9 * * 1", preset: "report", since: "7d" },
   };
   if (value === undefined) return disabled;
   const object = requireObject(path, value);
-  rejectUnknownKeys(path, object, ["enabled", "property", "digest"]);
+  rejectUnknownKeys(path, object, ["enabled", "property", "properties", "digest"]);
   const enabled = readBoolean(`${path}.enabled`, object["enabled"], false);
-  const property = readNullableString(`${path}.property`, object["property"], null);
+  const properties = readNameList(path, object, "property", "properties");
 
   const digestRaw = object["digest"];
   let digest = disabled.digest;
@@ -806,7 +859,7 @@ function readGa4(path: ConfigPath, value: unknown): Ga4Config {
       since: readString(`${path}.digest.since`, digestObject["since"], disabled.digest.since),
     };
   }
-  return { enabled, property, digest };
+  return { enabled, properties, digest };
 }
 
 function readNotify(path: ConfigPath, value: unknown): NotifyConfig {

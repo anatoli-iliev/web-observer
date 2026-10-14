@@ -113,8 +113,14 @@ export type VercelBudgetConfig = {
 };
 export type VercelConfig = {
     enabled: boolean;
-    /** Project name or `prj_` id. */
-    project: string | null;
+    /**
+     * Project names or `prj_` ids, in the order they are polled.
+     *
+     * Written in the file as `project` for one or `projects` for several. Every
+     * project shares the error and budget settings below, and keeps its own state,
+     * so an outage on one site neither raises nor clears an alert for another.
+     */
+    projects: string[];
     errors: VercelErrorsConfig;
     budget: VercelBudgetConfig;
 };
@@ -127,7 +133,11 @@ export type Ga4DigestConfig = {
 };
 export type Ga4Config = {
     enabled: boolean;
-    property: string | null;
+    /**
+     * Property ids, one digest section each. Written as `property` for one or
+     * `properties` for several. Empty means the open-ga4 skill's own default.
+     */
+    properties: string[];
     digest: Ga4DigestConfig;
 };
 /**

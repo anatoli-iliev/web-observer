@@ -224,6 +224,13 @@ the gap between two windows and never be reported. The overlap is free because
 errors are deduplicated by request id, and if a poll is missed the window widens
 to cover the gap.
 
+To watch several sites, name them all with `projects` instead of `project`, for
+example `"projects": ["my-project", "my-other-project"]`. Each project is polled
+with its own query and keeps its own alert state, so errors on one site neither
+raise nor clear an alert for another, and every alert names its project. The
+`errors` and `budget` settings apply to all of them, and one account- or
+team-scoped token covers them all.
+
 `threshold` is how many new errors a poll tolerates before alerting; `0` alerts
 on any. Errors below the threshold are deliberately **not** remembered, so a slow
 trickle still adds up to an alert instead of being forgotten one poll at a time.
@@ -253,6 +260,10 @@ Turn it on only having decided that is fine for your logs.
   }
 }
 ```
+
+For several sites, use `"properties": ["123456789", "987654321"]` instead of
+`property`. The digest then has one section per property, and a property that
+fails is reported in the run log without holding back the others.
 
 Needs [open-ga4](https://github.com/anatoli-iliev/open-ga4):
 

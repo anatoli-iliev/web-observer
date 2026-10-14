@@ -46,8 +46,21 @@ export type VercelWatchState = {
 export type State = {
     version: 1;
     watches: Record<string, WatchState>;
-    vercel: VercelWatchState;
+    /**
+     * One entry per Vercel project, keyed by the name in the configuration.
+     *
+     * Releases before multi-project support kept a single unkeyed object here.
+     * That is read back under {@link LEGACY_VERCEL_KEY} and handed to the first
+     * configured project by {@link vercelStateOf}, so an upgrade neither repeats
+     * an alert nor forgets an outstanding one.
+     */
+    vercel: Record<string, VercelWatchState>;
 };
+/**
+ * Where a pre-multi-project Vercel state is parked until a project claims it.
+ * Parentheses and a space cannot occur in a Vercel project name or id.
+ */
+export declare const LEGACY_VERCEL_KEY = "(single project)";
 export declare function freshWatchState(): WatchState;
 export declare function freshVercelState(): VercelWatchState;
 export declare function freshState(): State;
@@ -65,6 +78,13 @@ export declare function freshState(): State;
  * either direction either re-alerts or stays silent about a real outage.
  */
 export declare function parseState(document: unknown): State;
+/**
+ * The Vercel state for one project, creating a blank one on first sight.
+ *
+ * @param first Whether this is the first configured project, the one that
+ *   inherits a state written before projects were keyed.
+ */
+export declare function vercelStateOf(state: State, project: string, first: boolean): VercelWatchState;
 /** The state for one watch, creating a blank one on first sight. */
 export declare function watchStateOf(state: State, id: string): WatchState;
 /**

@@ -66,5 +66,9 @@ export declare function runGa4(status: Extract<Ga4Status, {
  *   when it is not.
  */
 export declare function rejectUnknownPreset(argv: readonly string[]): string | null;
-/** The arguments a scheduled digest runs with. */
-export declare function digestArgv(config: Config): string[];
+/**
+ * The arguments a scheduled digest runs with.
+ *
+ * @param property The property to report on, or null for open-ga4's default.
+ */
+export declare function digestArgv(config: Config, property: string | null): string[];

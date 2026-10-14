@@ -193,7 +193,7 @@ describe("the error watch, end to end", () => {
     expect(first.message).toContain("3 x 500");
     expect(first.message).toContain("/api/x");
     expect(first.code).toBe(0);
-    expect(first.state.vercel.alerting).toBe(true);
+    expect(first.state.vercel["dobri-web"]?.alerting).toBe(true);
   });
 
   // The overlap is designed to re-report; the dedupe is what makes it silent.
@@ -300,7 +300,7 @@ describe("when the poll itself fails", () => {
       1_000_000,
     );
     expect(result.code).toBe(1);
-    expect(result.message).toBe("");
+    expect(result.message).toBe("NO_REPLY");
     expect(result.stderr).toContain("could not read");
   });
 });
@@ -406,6 +406,64 @@ describe("a dry run", () => {
     expect(streams.stderr()).toContain("new error");
     // The returned state is the one loaded, so a dry run cannot consume the one
     // alert a real incident is entitled to.
-    expect(outcome.state.vercel.alerting).toBe(false);
+    expect(outcome.state.vercel["dobri-web"]).toBeUndefined();
+  });
+});
+
+describe("several projects", () => {
+  const twoProjects = () => configOf({ project: undefined, projects: ["dobri-web", "other-site"] });
+
+  it("polls each project with its own --project, and alerts only for the one failing", async () => {
+    const file = scratch();
+    const calls: string[][] = [];
+    const streams = captureStreams();
+    const outcome = await runVercelWatch(
+      { config: twoProjects(), configFile: "/c", stateFile: file, streams, env: {}, now: () => 1_000_000 },
+      {
+        status: READY,
+        credentials: CREDENTIALS,
+        invoke: async (argv) => {
+          calls.push([...argv]);
+          return argv.includes("other-site") ? okResult(["b1"]) : okResult([]);
+        },
+      },
+      { dryRun: false },
+    );
+    expect(calls.map((argv) => argv[argv.indexOf("--project") + 1])).toEqual([
+      "dobri-web",
+      "other-site",
+    ]);
+    expect(outcome.message).toContain("other-site: 1 new error");
+    expect(outcome.message).not.toContain("dobri-web");
+    expect(outcome.state.vercel["other-site"]?.alerting).toBe(true);
+    expect(outcome.state.vercel["dobri-web"]?.alerting).toBe(false);
+  });
+
+  it("recovers one project without touching another's outstanding alert", async () => {
+    const file = scratch();
+    const config = twoProjects();
+    await poll(file, [okResult(["d1"]), okResult(["b1"])], 1_000_000, config);
+    const second = await poll(file, [okResult([]), okResult(["b1"])], 1_000_000 + 15 * MINUTE, config);
+    expect(second.message).toContain("dobri-web: no Vercel errors");
+    expect(second.message).not.toContain("other-site");
+    expect(second.state.vercel["other-site"]?.alerting).toBe(true);
+  });
+
+  it("lets the first project inherit a single-project state, so an upgrade does not re-alert", async () => {
+    const legacy = freshState();
+    // The shape a release before multi-project support wrote.
+    (legacy as unknown as { vercel: unknown }).vercel = {
+      seenRequestIds: { d1: 1_000_000 },
+      alerting: true,
+      lastPollAtMs: 1_000_000,
+      failing: false,
+      budgetAlerting: false,
+      lastBudgetPollAtMs: null,
+    };
+    const file = scratch(legacy);
+    const result = await poll(file, [okResult(["d1"]), okResult([])], 1_000_000 + 15 * MINUTE, twoProjects());
+    expect(result.message).toBe("NO_REPLY");
+    expect(result.state.vercel["dobri-web"]?.alerting).toBe(true);
+    expect(Object.keys(result.state.vercel).sort()).toEqual(["dobri-web", "other-site"]);
   });
 });

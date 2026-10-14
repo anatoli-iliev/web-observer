@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   freshState,
+  LEGACY_VERCEL_KEY,
   loadState,
   parseState,
   pruneSeenIds,
   saveState,
+  vercelStateOf,
   watchStateOf,
 } from "./state.js";
 
@@ -61,19 +63,34 @@ describe("reading state", () => {
     expect(watchStateOf(freshState(), "never-seen").down).toBe(false);
   });
 
-  it("reads the vercel poller's memory back", () => {
+  it("reads the vercel poller's memory back, per project", () => {
+    const state = parseState({
+      vercel: {
+        "dobri-web": { seenRequestIds: { a: 5 }, alerting: true, lastPollAtMs: 7 },
+        "other-site": { alerting: false, lastPollAtMs: 9 },
+      },
+    });
+    const dobri = vercelStateOf(state, "dobri-web", true);
+    expect(dobri.seenRequestIds).toEqual({ a: 5 });
+    expect(dobri.alerting).toBe(true);
+    expect(dobri.lastPollAtMs).toBe(7);
+    expect(vercelStateOf(state, "other-site", false).lastPollAtMs).toBe(9);
+  });
+
+  // Written by a release that watched one project and did not key it. The first
+  // configured project inherits it, so an upgrade cannot repeat or lose an alert.
+  it("hands a single-project state to the first configured project only", () => {
     const state = parseState({
       vercel: { seenRequestIds: { a: 5 }, alerting: true, lastPollAtMs: 7 },
     });
-    expect(state.vercel.seenRequestIds).toEqual({ a: 5 });
-    expect(state.vercel.alerting).toBe(true);
-    expect(state.vercel.lastPollAtMs).toBe(7);
+    expect(state.vercel[LEGACY_VERCEL_KEY]?.alerting).toBe(true);
+    expect(vercelStateOf(state, "dobri-web", true).alerting).toBe(true);
+    expect(vercelStateOf(state, "other-site", false).alerting).toBe(false);
   });
 
   it("drops a seen id whose timestamp is not a number", () => {
-    expect(parseState({ vercel: { seenRequestIds: { a: "soon" } } }).vercel.seenRequestIds).toEqual(
-      {},
-    );
+    const state = parseState({ vercel: { p: { seenRequestIds: { a: "soon" } } } });
+    expect(vercelStateOf(state, "p", true).seenRequestIds).toEqual({});
   });
 });
 

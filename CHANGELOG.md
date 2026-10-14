@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
+### Added
+
+- **The Vercel and GA4 modules watch more than one site.** `vercel.projects`
+  takes a list of projects in place of `vercel.project`, and `ga4.properties` a
+  list of properties in place of `ga4.property`; the singular forms still work.
+  Each Vercel project is polled with its own query and keeps its own alert
+  state, so one site's errors neither raise nor clear another's alert. The GA4
+  digest gets one section per property, and a failing property no longer holds
+  back the rest. Uptime already took one watch per URL.
+
+### Changed
+
+- **Vercel state is kept per project.** A state file written by 0.1.1 is read
+  back and handed to the first configured project, so upgrading neither repeats
+  an alert nor forgets an outstanding one.
+- **`vercel-watch` saves its state even when it exits 2.** With several
+  projects, a configuration problem on one must not stop another's alert from
+  being remembered as sent.
+
 ## [0.1.1] - 2026-09-23
 
 ### Security

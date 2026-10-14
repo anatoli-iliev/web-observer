@@ -6,4 +6,4 @@
  * with it. A test asserts this string matches package.json and SKILL.md, so the
  * three cannot drift.
  */
-export declare const VERSION = "0.1.1";
+export declare const VERSION = "0.2.0";

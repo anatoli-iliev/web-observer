@@ -5,7 +5,7 @@ description: >-
   goes down and again when it recovers, Vercel error logs and Core Web Vitals,
   and GA4 traffic. Ask "is my site up", "did anything error on Vercel", or "how
   much traffic last week".
-version: 0.1.1
+version: 0.2.0
 homepage: https://github.com/anatoli-iliev/web-observer
 compatibility: openclaw >=1.0
 metadata:
@@ -129,6 +129,8 @@ conversation. Running them by hand consumes the one alert an outage gets. Use
   not invent a URL and do not add one to the configuration without being asked.
 - **A Vercel question with no project**: `vercel overview` will list the
   account's projects if none is configured. List them and ask; do not pick one.
+  When several projects are configured and the question does not say which
+  site, ask, or pass `--project` for each and say which answer is which.
 - **"Why did nobody tell me"**: run `doctor --json`. The usual answer is that
   the cron job was never created, which `blocked_on: "no_cron_jobs"` names.
 
@@ -322,6 +324,11 @@ before anybody is woken up.
   }
 }
 ```
+
+For several sites, write `"projects": ["a", "b"]` instead of `project`, and
+`"properties": ["1", "2"]` instead of `property`; giving both spellings is a
+configuration error. Each Vercel project keeps its own alert state and every
+alert names its project. Uptime already takes one entry per URL in `watches`.
 
 `windowMinutes` must exceed `intervalMinutes`. The overlap is what stops an
 error arriving mid-poll from falling into the gap between two windows, and it

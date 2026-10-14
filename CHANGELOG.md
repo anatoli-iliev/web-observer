@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-14
+
+### Fixed
+
+- **A quiet Vercel poll no longer sends its notes to the chat.** OpenClaw stays
+  silent only when a cron command prints exactly `NO_REPLY`; anything on stderr
+  is delivered with it. A poll that found errors below the threshold therefore
+  sent `stdout: NO_REPLY / stderr: note: ...` with no project named, eleven
+  times in two days on one install. `watch`, `vercel-watch` and `digest` now
+  append a successful run's notes to `web-observer.log` beside the state file;
+  a failed run still writes them to stderr.
+
+### Changed
+
+- **Error alerts list distinct errors.** An alert names the project and its
+  domain, then each distinct error once with its count, routes, status,
+  whether it was an HTTP failure or only logged an error line, and a sample
+  request id.
+  With `includeMessages` on, errors are grouped by message and quoted.
+- **Opted-in messages are redacted.** Only the first line is sent, capped at
+  200 characters, with common secret shapes replaced by `[redacted]`.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

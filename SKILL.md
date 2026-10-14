@@ -5,7 +5,7 @@ description: >-
   goes down and again when it recovers, Vercel error logs and Core Web Vitals,
   and GA4 traffic. Ask "is my site up", "did anything error on Vercel", or "how
   much traffic last week".
-version: 0.2.0
+version: 0.2.1
 homepage: https://github.com/anatoli-iliev/web-observer
 compatibility: openclaw >=1.0
 metadata:
@@ -210,8 +210,11 @@ channel the cron job names, which is the channel already configured in OpenClaw.
 
 Two consequences worth knowing:
 
-- On a scheduled run, **anything printed to stdout is sent to the user.**
-  Diagnostics go to stderr, where cron records them in the run log instead.
+- On a scheduled run, **anything printed is sent to the user, stderr included**:
+  OpenClaw stays silent only when the whole output is exactly `NO_REPLY`. So a
+  successful `watch`, `vercel-watch` or `digest` appends its notes to
+  `web-observer.log` beside the state file instead of stderr; a failed one
+  still writes them to stderr.
 - `watch` exits **0 even when it alerts**. An alert is this tool working. A
   non-zero exit would additionally fire OpenClaw's own cron failure
   notification, so one outage would be reported twice by two mechanisms.
@@ -335,7 +338,10 @@ error arriving mid-poll from falling into the gap between two windows, and it
 costs nothing because errors are deduplicated by request id.
 
 `includeMessages` defaults to false and should stay there unless you have
-thought about it: see the rule above about raw log text.
+thought about it: see the rule above about raw log text. When on, each message is
+cut to its first line, capped at 200 characters, and common secret shapes are
+replaced by `[redacted]`; alerts then quote each distinct error once with its
+count and routes.
 
 ## This skill's own network access
 
